@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Dark rounded square background -->
+  <rect width="512" height="512" rx="96" fill="#0f1117"/>
+  <!-- Green shield with checkmark (ShieldCheck) centered, scaled to fit -->
+  <!-- Shield shape -->
+  <path d="M256 80 L368 120 L368 248 C368 312 320 368 256 400 C192 368 144 312 144 248 L144 120 Z"
+        fill="none" stroke="hsl(84,81%,44%)" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- Checkmark inside shield -->
+  <polyline points="208,256 240,288 304,224"
+        fill="none" stroke="hsl(84,81%,44%)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FitTrack Pro Admin — Offline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: #0f1117; color: #f8f9fa; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem; text-align: center; }
+    .icon-wrap { background: rgba(126,211,33,0.1); border: 1px solid rgba(126,211,33,0.2); border-radius: 1rem; padding: 1.25rem; }
+    svg { width: 56px; height: 56px; }
+    h1 { font-size: 1.25rem; font-weight: 600; }
+    p  { font-size: 0.875rem; color: #8b9db0; max-width: 320px; line-height: 1.6; }
+    button {
+      background: hsl(84,81%,44%); color: #0f1117; border: none;
+      padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 600;
+      font-size: 0.875rem; cursor: pointer; transition: opacity .2s;
+    }
+    button:hover { opacity: .85; }
+  </style>
+</head>
+<body>
+  <div class="icon-wrap">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+      <rect width="512" height="512" rx="96" fill="#0f1117"/>
+      <path d="M256 80 L368 120 L368 248 C368 312 320 368 256 400 C192 368 144 312 144 248 L144 120 Z"
+            fill="none" stroke="hsl(84,81%,44%)" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+      <polyline points="208,256 240,288 304,224"
+            fill="none" stroke="hsl(84,81%,44%)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <h1>You're offline</h1>
+  <p>FitTrack Pro Admin requires an internet connection. Check your network and try again.</p>
+  <button onclick="window.location.reload()">Try again</button>
+</body>
+</html>
