@@ -66,7 +66,7 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -74,17 +74,22 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Panel */}
+      {/* Panel — full width on mobile, max-w constrained on desktop, scrollable */}
       <div
         ref={panelRef}
-        className={cn('relative w-full rounded-xl border border-border bg-card shadow-xl animate-fade-in', sizes[size])}
+        className={cn(
+          'relative w-full rounded-xl border border-border bg-card shadow-xl animate-fade-in',
+          'my-2 sm:my-8 flex flex-col',
+          'max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-4rem)]',
+          sizes[size]
+        )}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 p-5 border-b border-border">
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border flex-shrink-0">
           <div>
             <h2 id={titleId} className="text-base font-semibold text-foreground">{title}</h2>
             {description && (
@@ -93,14 +98,14 @@ export function Modal({ open, onClose, title, description, children, size = 'md'
           </div>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring flex-shrink-0"
             aria-label="Close dialog"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-        {/* Body */}
-        <div className="p-5">{children}</div>
+        {/* Body — scrollable */}
+        <div className="p-5 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   )

@@ -1,728 +1,618 @@
 /**
- * NutritionPage.tsx — Full Nutrition Administration
- * Tabs: Overview | Foods | Ethiopian Foods | Meal Plans | Shopping Lists | Categories
+ * NutritionPage.tsx
+ * Table-style CRUD for preset meal plans and shopping lists.
+ * Each food/item has its own image thumbnail (upload per row).
+ * Weight categories use icons (Dumbbell = gain, Flame = loss).
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef } from 'react'
-import { Salad, RefreshCw, Plus, Pencil, Trash2, Download, Upload,
-  Search, CheckCircle2, XCircle, Star } from 'lucide-react'
+import { Salad, Plus, Pencil, Trash2, ImageIcon, Dumbbell, Flame,
+  ChevronDown, ChevronUp, Check, X } from 'lucide-react'
 import { PageShell } from '@/components/layout/PageShell'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { Pagination } from '@/components/ui/Pagination'
 import { Tabs, TabPanel } from '@/components/ui/Tabs'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Modal } from '@/components/ui/Modal'
-import { Badge as B } from '@/components/ui/Badge'
-import { formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
-import { supabase } from '@/lib/supabase'
 import { PermissionGate } from '@/components/guards/PermissionGate'
-import { FoodForm } from '@/components/nutrition/FoodForm'
-import { EthiopianFoodForm } from '@/components/nutrition/EthiopianFoodForm'
-import { CsvImportModal } from '@/components/nutrition/CsvImportModal'
+import { fetchPresets, upsertPreset, uploadPresetImage, type WeightCategory } from '@/lib/preset.queries'
 import {
-  fetchFoods, fetchEthiopianFoods, fetchMealPlans, fetchShoppingItems,
-  softDeleteFood, bulkDeleteFoods, exportFoods, importFoods,
-  deleteEthiopianFood, exportEthiopianFoods, importEthiopianFoods,
-  deleteMealPlanRow, deleteShoppingItem,
-  arrayToCsv, downloadCsv, csvToArray,
-  FOOD_SOURCES, ETH_CATEGORIES, MEAL_SLOTS,
-  type Food, type EthiopianFood, type FoodFilters,
-} from '@/lib/nutrition.queries'
-
-const PAGE_SIZE = 25
-
-const toOpts = (arr: readonly string[], withAll = true) => [
-  ...(withAll ? [{ value: '', label: 'All' }] : []),
-  ...arr.map((v) => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) })),
-]
-
-const DEFAULT_FILTERS: FoodFilters = {
-  search: '', source: '', verified_only: false, featured_only: false, ethiopian_only: false,
-}
+  PRESET_MEAL_PLAN_DATA, PRESET_SHOPPING_DATA,
+  DAYS_ORDER, SLOT_LABELS,
+  type MealPlanDays, type ShoppingCategories, type FoodItem, type ShoppingItem,
+} from '@/lib/preset.data'
 
 const PAGE_TABS = [
-  { id: 'overview',   label: 'Overview',        icon: Salad },
-  { id: 'foods',      label: 'Foods',           icon: Salad },
-  { id: 'ethiopian',  label: 'Ethiopian Foods', icon: Salad },
-  { id: 'mealplans',  label: 'Meal Plans',      icon: Salad },
-  { id: 'shopping',   label: 'Shopping Lists',  icon: Salad },
-  { id: 'categories', label: 'Categories',      icon: Salad },
+  { id: 'mealplans', label: 'Meal Plans',     icon: Salad },
+  { id: 'shopping',  label: 'Shopping Lists', icon: Salad },
 ]
 
-const FOOD_CSV_HEADERS = ['name','name_am','brand','source','serving_size','serving_unit','calories','protein_g','carbs_g','fat_g','fiber_g','sugar_g','sodium_mg','potassium_mg','vitamin_c_mg','iron_mg','calcium_mg','barcode','is_verified','is_featured','tags']
-const FOOD_CSV_TEMPLATE_ROW: Record<string, string> = { name:'Injera',name_am:'እንጀራ',brand:'',source:'ethiopian',serving_size:'100',serving_unit:'g',calories:'174',protein_g:'5.7',carbs_g:'36.5',fat_g:'0.8',fiber_g:'3.2',sugar_g:'',sodium_mg:'',potassium_mg:'',vitamin_c_mg:'',iron_mg:'',calcium_mg:'',barcode:'',is_verified:'true',is_featured:'true',tags:'grain,fermented' }
+type WeightOpt = { id: WeightCategory; label: string; icon: typeof Dumbbell; color: string; bg: string }
+const WEIGHT_OPTIONS: WeightOpt[] = [
+  { id: 'weight-gain', label: 'Weight Gain', icon: Dumbbell, color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
+  { id: 'weight-loss', label: 'Weight Loss', icon: Flame,    color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30' },
+]
 
-const ETH_CSV_HEADERS = ['food_id','name_en','name_am','category','region','is_vegan','is_vegetarian','is_fasting_safe','description','common_ingredients']
-const ETH_CSV_TEMPLATE_ROW: Record<string, string> = { food_id:'<uuid-from-foods-table>',name_en:'Injera',name_am:'እንጀራ',category:'injera_based',region:'national',is_vegan:'true',is_vegetarian:'true',is_fasting_safe:'true',description:'Spongy sourdough flatbread',common_ingredients:'teff flour,water,salt' }
+// ── Row image thumbnail ───────────────────────────────────────────────────────
+function RowThumbnail({ url, onUpload, uploading }: {
+  url?: string | null; onUpload: (f: File) => void; uploading?: boolean
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  if (uploading) return <div className="w-9 h-9 rounded-md flex items-center justify-center"><Spinner size="sm" /></div>
+  return (
+    <div className="w-9 h-9 rounded-md overflow-hidden border border-dashed border-border cursor-pointer group relative flex-shrink-0"
+      onClick={() => ref.current?.click()} title="Upload image">
+      {url ? <img src={url} alt="" className="w-full h-full object-cover" />
+        : <div className="w-full h-full bg-muted/30 flex items-center justify-center">
+            <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
+          </div>}
+      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <ImageIcon className="h-3 w-3 text-white" />
+      </div>
+      <input ref={ref} type="file" accept="image/*" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = '' }} />
+    </div>
+  )
+}
 
-// ── Overview Tab ──────────────────────────────────────────────────────────────
+// ── Inline editable food row ──────────────────────────────────────────────────
+type FoodRowProps = {
+  food: FoodItem & { imageUrl?: string }
+  index: number
+  onSave: (updated: FoodItem & { imageUrl?: string }) => void
+  onDelete: () => void
+  onImageUpload: (f: File) => Promise<string>
+}
 
-function OverviewTab() {
-  const { data: foodCount }     = useQuery({ queryKey: ['food-count'],     queryFn: async () => { const { count } = await supabase.from('foods').select('id', { count: 'exact', head: true }).is('deleted_at', null); return count ?? 0 } })
-  const { data: ethCount }      = useQuery({ queryKey: ['eth-count'],      queryFn: async () => { const { count } = await supabase.from('ethiopian_foods').select('id', { count: 'exact', head: true }); return count ?? 0 } })
-  const { data: mealPlanCount } = useQuery({ queryKey: ['meal-plan-count'],queryFn: async () => { const { count } = await supabase.from('meal_plans').select('id', { count: 'exact', head: true }); return count ?? 0 } })
-  const { data: mealLogCount }  = useQuery({ queryKey: ['meal-log-count'], queryFn: async () => { const { count } = await supabase.from('meal_logs').select('id', { count: 'exact', head: true }); return count ?? 0 } })
-  const { data: shopCount }     = useQuery({ queryKey: ['shop-count'],     queryFn: async () => { const { count } = await supabase.from('shopping_list_items').select('id', { count: 'exact', head: true }); return count ?? 0 } })
-  const { data: verifiedCount } = useQuery({ queryKey: ['verified-count'], queryFn: async () => { const { count } = await supabase.from('foods').select('id', { count: 'exact', head: true }).eq('is_verified', true); return count ?? 0 } })
+function FoodRow({ food, index, onSave, onDelete, onImageUpload }: FoodRowProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ ...food })
+  const [uploading, setUploading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const stats = [
-    { label: 'Total foods', value: foodCount ?? '—' },
-    { label: 'Ethiopian foods', value: ethCount ?? '—' },
-    { label: 'Verified foods', value: verifiedCount ?? '—' },
-    { label: 'Meal plan rows', value: mealPlanCount ?? '—' },
-    { label: 'Meal log entries', value: mealLogCount ?? '—' },
-    { label: 'Shopping items', value: shopCount ?? '—' },
-  ]
+  const handleImageUpload = async (file: File) => {
+    setUploading(true)
+    try { const url = await onImageUpload(file); setDraft(d => ({ ...d, imageUrl: url })) }
+    catch (e) { toast.error((e as Error).message) }
+    finally { setUploading(false) }
+  }
+
+  if (editing) {
+    return (
+      <tr className="bg-primary/5">
+        <td className="px-3 py-2">
+          <RowThumbnail url={draft.imageUrl} onUpload={handleImageUpload} uploading={uploading} />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name_am} onChange={e => setDraft(d => ({ ...d, name_am: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-20">
+          <input type="number" value={draft.calories} onChange={e => setDraft(d => ({ ...d, calories: +e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-16">
+          <input type="number" value={draft.protein} onChange={e => setDraft(d => ({ ...d, protein: +e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-16">
+          <input type="number" value={draft.carbs} onChange={e => setDraft(d => ({ ...d, carbs: +e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-16">
+          <input type="number" value={draft.fat} onChange={e => setDraft(d => ({ ...d, fat: +e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex gap-1">
+            <button onClick={() => { onSave(draft); setEditing(false) }}
+              className="flex h-7 w-7 items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => setEditing(false)}
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="hover:bg-muted/20 group">
+      <td className="px-3 py-2">
+        <RowThumbnail url={food.imageUrl} onUpload={async (f) => {
+          const url = await onImageUpload(f)
+          onSave({ ...food, imageUrl: url })
+        }} uploading={uploading} />
+      </td>
+      <td className="px-3 py-2 font-medium text-sm">{food.name}</td>
+      <td className="px-3 py-2 text-sm text-muted-foreground">{food.name_am}</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums">{food.calories}</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground">{food.protein}g</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground">{food.carbs}g</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground">{food.fat}g</td>
+      <td className="px-3 py-2">
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => { setDraft({ ...food }); setEditing(true) }}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => setConfirmDelete(true)}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => { onDelete(); setConfirmDelete(false) }}
+          title="Delete food" message={`Delete "${food.name}"?`} confirmLabel="Delete" loading={false} />
+      </td>
+    </tr>
+  )
+}
+
+// ── Inline editable shopping item row ────────────────────────────────────────
+type ShopRowProps = {
+  item: ShoppingItem & { imageUrl?: string }
+  onSave: (updated: ShoppingItem & { imageUrl?: string }) => void
+  onDelete: () => void
+  onImageUpload: (f: File) => Promise<string>
+}
+
+function ShopRow({ item, onSave, onDelete, onImageUpload }: ShopRowProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ ...item })
+  const [uploading, setUploading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleImageUpload = async (file: File) => {
+    setUploading(true)
+    try { const url = await onImageUpload(file); setDraft(d => ({ ...d, imageUrl: url })) }
+    catch (e) { toast.error((e as Error).message) }
+    finally { setUploading(false) }
+  }
+
+  if (editing) {
+    return (
+      <tr className="bg-primary/5">
+        <td className="px-3 py-2">
+          <RowThumbnail url={draft.imageUrl} onUpload={handleImageUpload} uploading={uploading} />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name_am} onChange={e => setDraft(d => ({ ...d, name_am: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex gap-1">
+            <button onClick={() => { onSave(draft); setEditing(false) }}
+              className="flex h-7 w-7 items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => setEditing(false)}
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="hover:bg-muted/20 group">
+      <td className="px-3 py-2">
+        <RowThumbnail url={item.imageUrl} onUpload={async (f) => {
+          const url = await onImageUpload(f); onSave({ ...item, imageUrl: url })
+        }} uploading={uploading} />
+      </td>
+      <td className="px-3 py-2 font-medium text-sm">{item.name}</td>
+      <td className="px-3 py-2 text-sm text-muted-foreground">{item.name_am}</td>
+      <td className="px-3 py-2">
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => { setDraft({ ...item }); setEditing(true) }}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => setConfirmDelete(true)}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => { onDelete(); setConfirmDelete(false) }}
+          title="Delete item" message={`Delete "${item.name}"?`} confirmLabel="Delete" loading={false} />
+      </td>
+    </tr>
+  )
+}
+
+// ── Meal Plans Tab ─────────────────────────────────────────────────────────────
+function MealPlansTab() {
+  const qc = useQueryClient()
+  const [weightFilter, setWeightFilter] = useState<WeightCategory>('weight-gain')
+  const [expandedDay, setExpandedDay] = useState<string | null>('Monday')
+  const [saving, setSaving] = useState(false)
+
+  const { data: dbRows = [], isLoading } = useQuery({
+    queryKey: ['presets', 'meal'],
+    queryFn: () => fetchPresets('meal'),
+  })
+
+  const dbRow = dbRows.find(r => r.id === weightFilter) ?? null
+  // Use DB days if saved, else static seed
+  const getDays = (): MealPlanDays => (dbRow?.data as any)?.days ?? PRESET_MEAL_PLAN_DATA[weightFilter]
+
+  const saveBack = async (newDays: MealPlanDays) => {
+    setSaving(true)
+    try {
+      await upsertPreset({
+        id: weightFilter, type: 'meal',
+        name: dbRow?.name ?? (weightFilter === 'weight-gain' ? 'Weight Gain Plan' : 'Weight Loss Plan'),
+        name_am: dbRow?.name_am ?? null,
+        description: dbRow?.description ?? null, description_am: dbRow?.description_am ?? null,
+        tags: null, tags_am: null,
+        target_goals: weightFilter === 'weight-gain' ? ['muscle','strength'] : ['fat'],
+        target_bmi_categories: weightFilter === 'weight-gain' ? ['underweight'] : ['overweight','obese'],
+        image_url: dbRow?.image_url ?? null,
+        data: { days: newDays },
+      })
+      qc.invalidateQueries({ queryKey: ['presets', 'meal'] })
+
+      // ── Auto-sync new foods into matching shopping list ───────────────────
+      // Collect all food names from the updated meal plan
+      const allFoodNames = new Set<string>()
+      for (const day of Object.values(newDays)) {
+        for (const slot of Object.values(day)) {
+          for (const food of slot) {
+            if (food.name) allFoodNames.add(food.name.toLowerCase().trim())
+          }
+        }
+      }
+
+      // Load current shopping list preset
+      const shopRows = await fetchPresets('shopping')
+      const shopRow = shopRows.find(r => r.id === weightFilter)
+      const currentCats: ShoppingCategories = (shopRow?.data as any)?.categories ?? PRESET_SHOPPING_DATA[weightFilter]
+      const newCats: ShoppingCategories = JSON.parse(JSON.stringify(currentCats))
+
+      // Check which foods are missing from shopping list
+      const existingNames = new Set<string>()
+      for (const items of Object.values(newCats)) {
+        for (const item of items as ShoppingItem[]) {
+          if (item.name) existingNames.add(item.name.toLowerCase().trim())
+        }
+      }
+
+      let added = 0
+      for (const foodName of allFoodNames) {
+        if (!existingNames.has(foodName)) {
+          // Find the matching food item for its amharic name
+          let amName = ''
+          outer: for (const day of Object.values(newDays)) {
+            for (const slot of Object.values(day)) {
+              for (const food of slot) {
+                if (food.name?.toLowerCase().trim() === foodName) {
+                  amName = food.name_am ?? ''
+                  break outer
+                }
+              }
+            }
+          }
+          // Add to 'Other' category (admin can move it later)
+          if (!newCats['Other']) newCats['Other'] = []
+          newCats['Other'].push({ name: foodName.charAt(0).toUpperCase() + foodName.slice(1), name_am: amName })
+          existingNames.add(foodName)
+          added++
+        }
+      }
+
+      if (added > 0) {
+        await upsertPreset({
+          id: weightFilter, type: 'shopping',
+          name: shopRow?.name ?? (weightFilter === 'weight-gain' ? 'Weight Gain Shopping List' : 'Weight Loss Shopping List'),
+          name_am: shopRow?.name_am ?? null,
+          description: shopRow?.description ?? null, description_am: shopRow?.description_am ?? null,
+          tags: null, tags_am: null,
+          target_goals: weightFilter === 'weight-gain' ? ['muscle','strength'] : ['fat'],
+          target_bmi_categories: weightFilter === 'weight-gain' ? ['underweight'] : ['overweight','obese'],
+          image_url: shopRow?.image_url ?? null,
+          data: { categories: newCats },
+        })
+        qc.invalidateQueries({ queryKey: ['presets', 'shopping'] })
+        toast.success(`Saved · Added ${added} new item${added > 1 ? 's' : ''} to shopping list`)
+      } else {
+        toast.success('Saved')
+      }
+    } catch (e) { toast.error((e as Error).message) }
+    finally { setSaving(false) }
+  }
+
+  const handleFoodSave = async (day: string, slot: string, index: number, updated: FoodItem & { imageUrl?: string }) => {
+    const days = getDays()
+    const newDays: MealPlanDays = JSON.parse(JSON.stringify(days))
+    ;(newDays[day] as any)[slot][index] = updated
+    await saveBack(newDays)
+  }
+
+  const handleFoodDelete = async (day: string, slot: string, index: number) => {
+    const days = getDays()
+    const newDays: MealPlanDays = JSON.parse(JSON.stringify(days))
+    ;(newDays[day] as any)[slot].splice(index, 1)
+    await saveBack(newDays)
+  }
+
+  const handleFoodAdd = async (day: string, slot: string) => {
+    const days = getDays()
+    const newDays: MealPlanDays = JSON.parse(JSON.stringify(days))
+    ;(newDays[day] as any)[slot].push({ name: 'New food', name_am: '', calories: 0, protein: 0, carbs: 0, fat: 0 })
+    await saveBack(newDays)
+  }
+
+  const handleFoodImageUpload = async (day: string, slot: string, index: number, file: File): Promise<string> => {
+    const key = `meal-${weightFilter}-${day}-${slot}-${index}`
+    const url = await uploadPresetImage(key, file)
+    const days = getDays()
+    const newDays: MealPlanDays = JSON.parse(JSON.stringify(days))
+    ;(newDays[day] as any)[slot][index] = { ...(newDays[day] as any)[slot][index], imageUrl: url }
+    await saveBack(newDays)
+    return url
+  }
+
+  const opt = WEIGHT_OPTIONS.find(o => o.id === weightFilter)!
+  const CatIcon = opt.icon
 
   return (
     <div className="space-y-5 pt-5">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className="text-2xl font-bold mt-1">{s.value}</p>
-          </div>
-        ))}
+      {/* Weight filter tabs */}
+      <div className="flex items-center gap-2 p-1 bg-muted/30 rounded-lg w-fit">
+        {WEIGHT_OPTIONS.map(o => {
+          const Icon = o.icon
+          return (
+            <button key={o.id} onClick={() => setWeightFilter(o.id)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${weightFilter === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+              <Icon className={`h-4 w-4 ${o.color}`} />
+              {o.label}
+            </button>
+          )
+        })}
+        {saving && <Spinner size="sm" className="ml-2" />}
       </div>
 
-      {/* Source breakdown */}
-      <SourceBreakdown />
-    </div>
-  )
-}
+      {/* Category header with icon */}
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${opt.bg}`}>
+        <CatIcon className={`h-6 w-6 ${opt.color}`} />
+        <div>
+          <p className="font-semibold text-sm">{weightFilter === 'weight-gain' ? 'Weight Gain Meal Plan' : 'Weight Loss Meal Plan'}</p>
+          <p className="text-xs text-muted-foreground">7-day Ethiopian preset · click any row to edit</p>
+        </div>
+      </div>
 
-function SourceBreakdown() {
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['food-source-breakdown'],
-    queryFn: async () => {
-      const results = await Promise.all(
-        FOOD_SOURCES.map(async (src) => {
-          const { count } = await supabase.from('foods').select('id', { count: 'exact', head: true }).eq('source', src).is('deleted_at', null)
-          return { source: src, count: count ?? 0 }
-        })
-      )
-      return results.filter((r) => r.count > 0)
-    },
-  })
-
-  return (
-    <Card>
-      <CardHeader><CardTitle>Foods by Source</CardTitle></CardHeader>
-      <CardContent>
-        {isLoading ? <Spinner /> : (
-          <div className="flex flex-wrap gap-3">
-            {data.map((r) => (
-              <div key={r.source} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
-                <span className="text-sm font-medium capitalize">{r.source.replace(/_/g, ' ')}</span>
-                <Badge variant="info">{r.count}</Badge>
+      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
+        <div className="space-y-3">
+          {DAYS_ORDER.map(day => {
+            const slots = getDays()[day] ?? {}
+            const totalFoods = Object.values(slots).flat().length
+            const totalCals = Object.values(slots).flat().reduce((s, f: any) => s + (f.calories ?? 0), 0)
+            const isExpanded = expandedDay === day
+            return (
+              <div key={day} className="rounded-lg border border-border overflow-hidden">
+                <button type="button" onClick={() => setExpandedDay(isExpanded ? null : day)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-sm">{day}</span>
+                    <Badge variant="secondary" className="text-[10px]">{totalFoods} foods</Badge>
+                    <span className="text-xs text-muted-foreground">{totalCals} kcal</span>
+                  </div>
+                  {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                {isExpanded && (
+                  <div className="divide-y divide-border/40">
+                    {Object.entries(SLOT_LABELS).map(([slotId, slotLabel]) => {
+                      const foods: (FoodItem & { imageUrl?: string })[] = (slots as any)[slotId] ?? []
+                      return (
+                        <div key={slotId} className="px-0">
+                          <div className="flex items-center justify-between px-4 py-2 bg-muted/10">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{slotLabel}</span>
+                            <PermissionGate permission="nutrition.delete">
+                              <button onClick={() => handleFoodAdd(day, slotId)}
+                                className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                <Plus className="h-3 w-3" />Add
+                              </button>
+                            </PermissionGate>
+                          </div>
+                          {foods.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead><tr className="border-b border-border/40 bg-muted/5">
+                                  <th className="px-3 py-1.5 w-12"></th>
+                                  <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
+                                  <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
+                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-20">kcal</th>
+                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Prot</th>
+                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Carb</th>
+                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Fat</th>
+                                  <th className="px-3 py-1.5 w-20"></th>
+                                </tr></thead>
+                                <tbody className="divide-y divide-border/30">
+                                  {foods.map((food, i) => (
+                                    <FoodRow key={i} food={food} index={i}
+                                      onSave={(updated) => handleFoodSave(day, slotId, i, updated)}
+                                      onDelete={() => handleFoodDelete(day, slotId, i)}
+                                      onImageUpload={(f) => handleFoodImageUpload(day, slotId, i, f)} />
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ── Foods Tab ─────────────────────────────────────────────────────────────────
-
-function FoodsTab() {
-  const qc = useQueryClient()
-  const [page, setPage] = useState(0)
-  const [filters, setFilters] = useState<FoodFilters>(DEFAULT_FILTERS)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [formOpen, setFormOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<Food | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<Food | null>(null)
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>()
-
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['foods', page, filters],
-    queryFn: () => fetchFoods(page, PAGE_SIZE, filters),
-    placeholderData: (p) => p,
-  })
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['foods'] })
-
-  const handleSearch = (v: string) => {
-    clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(() => { setFilters((f) => ({ ...f, search: v })); setPage(0) }, 300)
-  }
-
-  const upd = (patch: Partial<FoodFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(0) }
-
-  const toggleSelect = (id: string) => setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleAll = () => {
-    const ids = data?.data.map((f) => f.id) ?? []
-    setSelectedIds(ids.every((id) => selectedIds.has(id)) ? new Set() : new Set(ids))
-  }
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try { await softDeleteFood(deleteTarget.id); toast.success('Food deleted'); invalidate() }
-    catch (e) { toast.error((e as Error).message) }
-    finally { setDeleting(false); setDeleteTarget(null) }
-  }
-
-  const handleBulkDelete = async () => {
-    setDeleting(true)
-    try { await bulkDeleteFoods([...selectedIds]); toast.success(`Deleted ${selectedIds.size} foods`); setSelectedIds(new Set()); invalidate() }
-    catch (e) { toast.error((e as Error).message) }
-    finally { setDeleting(false); setBulkDeleteOpen(false) }
-  }
-
-  const handleExport = async () => {
-    try {
-      const foods = await exportFoods()
-      const csv = arrayToCsv(foods.map((f) => ({ name: f.name, name_am: f.name_am ?? '', source: f.source, calories: f.calories ?? '', protein_g: f.protein_g ?? '', carbs_g: f.carbs_g ?? '', fat_g: f.fat_g ?? '', fiber_g: f.fiber_g ?? '', sodium_mg: f.sodium_mg ?? '', is_verified: f.is_verified, is_featured: f.is_featured, barcode: f.barcode ?? '', tags: f.tags?.join(';') ?? '' })))
-      downloadCsv(csv, `foods-${new Date().toISOString().slice(0, 10)}.csv`)
-      toast.success(`Exported ${foods.length} foods`)
-    } catch (e) { toast.error((e as Error).message) }
-  }
-
-  const toggleVerified = async (food: Food) => {
-    const { error } = await supabase.from('foods').update({ is_verified: !food.is_verified }).eq('id', food.id)
-    if (error) { toast.error(error.message); return }
-    toast.success(food.is_verified ? 'Unverified' : 'Verified')
-    invalidate()
-  }
-
-  const toggleFeatured = async (food: Food) => {
-    const { error } = await supabase.from('foods').update({ is_featured: !food.is_featured }).eq('id', food.id)
-    if (error) { toast.error(error.message); return }
-    toast.success(food.is_featured ? 'Removed from featured' : 'Marked as featured')
-    invalidate()
-  }
-
-  return (
-    <div className="space-y-4 pt-5">
-      {/* Toolbar */}
-      <div className="flex flex-wrap gap-2 items-center justify-between">
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input type="search" placeholder="Search foods…" onChange={(e) => handleSearch(e.target.value)}
-              className="flex h-9 w-48 rounded-md border border-input bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-          </div>
-          <select value={filters.source} onChange={(e) => upd({ source: e.target.value })}
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            {toOpts(FOOD_SOURCES).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
-            <input type="checkbox" checked={filters.verified_only} onChange={(e) => upd({ verified_only: e.target.checked })} />Verified only
-          </label>
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
-            <input type="checkbox" checked={filters.featured_only} onChange={(e) => upd({ featured_only: e.target.checked })} />Featured only
-          </label>
+            )
+          })}
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {selectedIds.size > 0 && <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>Delete {selectedIds.size}</Button>}
-          <Button size="sm" variant="outline" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>Export CSV</Button>
-          <Button size="sm" variant="outline" leftIcon={<Upload className="h-3.5 w-3.5" />} onClick={() => setImportOpen(true)}>Import CSV</Button>
-          <PermissionGate permission="nutrition.delete">
-            <Button size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { setEditTarget(null); setFormOpen(true) }}>Add food</Button>
-          </PermissionGate>
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div className="flex gap-3 text-xs text-muted-foreground">
-        <span>Total: <strong className="text-foreground">{data?.total ?? '—'}</strong></span>
-        <span>Verified: <strong className="text-foreground">{(data?.data ?? []).filter((f) => f.is_verified).length}</strong></span>
-        <span>Featured: <strong className="text-foreground">{(data?.data ?? []).filter((f) => f.is_featured).length}</strong></span>
-        {isFetching && <Spinner size="sm" />}
-      </div>
-
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-3 py-3 w-10"><input type="checkbox" checked={!!data?.data.length && data.data.every((f) => selectedIds.has(f.id))} onChange={toggleAll} className="rounded" /></th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Source</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden md:table-cell">Cal</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden md:table-cell">Protein</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden lg:table-cell">Carbs</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden lg:table-cell">Fat</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data?.data.map((f) => (
-                  <tr key={f.id} className={`hover:bg-muted/20 ${selectedIds.has(f.id) ? 'bg-primary/5' : ''}`}>
-                    <td className="px-3 py-2.5 w-10"><input type="checkbox" checked={selectedIds.has(f.id)} onChange={() => toggleSelect(f.id)} className="rounded" /></td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{f.name}</span>
-                        {f.name_am && <span className="text-muted-foreground text-xs">{f.name_am}</span>}
-                        {f.is_featured && <Badge variant="warning">Featured</Badge>}
-                        {f.is_verified && <Badge variant="success">Verified</Badge>}
-                        {f.image_url && <Badge variant="info">Image</Badge>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground capitalize">{f.source?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right hidden md:table-cell tabular-nums">{f.calories?.toFixed(0) ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right hidden md:table-cell text-muted-foreground tabular-nums">{f.protein_g ? `${f.protein_g}g` : '—'}</td>
-                    <td className="px-4 py-2.5 text-right hidden lg:table-cell text-muted-foreground tabular-nums">{f.carbs_g ? `${f.carbs_g}g` : '—'}</td>
-                    <td className="px-4 py-2.5 text-right hidden lg:table-cell text-muted-foreground tabular-nums">{f.fat_g ? `${f.fat_g}g` : '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => toggleVerified(f)} title={f.is_verified ? 'Unverify' : 'Verify'}
-                          className={`flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-secondary ${f.is_verified ? 'text-emerald-400' : 'text-muted-foreground'}`}>
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => toggleFeatured(f)} title={f.is_featured ? 'Unfeature' : 'Feature'}
-                          className={`flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-secondary ${f.is_featured ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                          <Star className="h-3.5 w-3.5" fill={f.is_featured ? 'currentColor' : 'none'} />
-                        </button>
-                        <PermissionGate permission="nutrition.delete">
-                          <button onClick={() => { setEditTarget(f); setFormOpen(true) }} title="Edit"
-                            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => setDeleteTarget(f)} title="Delete"
-                            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onChange={setPage} />
-        </>
       )}
-
-      <FoodForm open={formOpen} onClose={() => setFormOpen(false)} food={editTarget} />
-      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete}
-        title="Delete Food" message={`Soft-delete "${deleteTarget?.name}"?`} confirmLabel="Delete" loading={deleting} />
-      <ConfirmDialog open={bulkDeleteOpen} onClose={() => setBulkDeleteOpen(false)} onConfirm={handleBulkDelete}
-        title={`Delete ${selectedIds.size} foods`} message="Soft-delete selected foods?" confirmLabel={`Delete ${selectedIds.size}`} loading={deleting} />
-      <CsvImportModal open={importOpen} onClose={() => setImportOpen(false)} title="Foods"
-        templateHeaders={FOOD_CSV_HEADERS} templateRow={FOOD_CSV_TEMPLATE_ROW}
-        onImport={(rows) => importFoods(rows as Parameters<typeof importFoods>[0])}
-        onSuccess={invalidate} />
-    </div>
-  )
-}
-
-// ── Ethiopian Foods Tab ───────────────────────────────────────────────────────
-
-function EthiopianFoodsTab() {
-  const qc = useQueryClient()
-  const [page, setPage] = useState(0)
-  const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('')
-  const [formOpen, setFormOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<EthiopianFood | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<EthiopianFood | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>()
-
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['ethiopian-foods', page, search, category],
-    queryFn: () => fetchEthiopianFoods(page, PAGE_SIZE, search, category),
-    placeholderData: (p) => p,
-  })
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['ethiopian-foods'] })
-
-  const handleSearch = (v: string) => {
-    clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(() => { setSearch(v); setPage(0) }, 300)
-  }
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try { await deleteEthiopianFood(deleteTarget.id); toast.success('Deleted'); invalidate() }
-    catch (e) { toast.error((e as Error).message) }
-    finally { setDeleting(false); setDeleteTarget(null) }
-  }
-
-  const handleExport = async () => {
-    try {
-      const items = await exportEthiopianFoods()
-      const csv = arrayToCsv(items.map((i) => ({ food_id: i.food_id, name_en: i.name_en, name_am: i.name_am, category: i.category, region: i.region ?? '', is_vegan: i.is_vegan, is_vegetarian: i.is_vegetarian, is_fasting_safe: i.is_fasting_safe, description: i.description ?? '', common_ingredients: i.common_ingredients?.join(';') ?? '' })))
-      downloadCsv(csv, `ethiopian-foods-${new Date().toISOString().slice(0, 10)}.csv`)
-      toast.success(`Exported ${items.length} items`)
-    } catch (e) { toast.error((e as Error).message) }
-  }
-
-  const catOpts = toOpts(ETH_CATEGORIES)
-
-  return (
-    <div className="space-y-4 pt-5">
-      <div className="flex flex-wrap gap-2 items-center justify-between">
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input type="search" placeholder="Search Ethiopian foods…" onChange={(e) => handleSearch(e.target.value)}
-              className="flex h-9 w-52 rounded-md border border-input bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-          </div>
-          <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(0) }}
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            {catOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button size="sm" variant="outline" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>Export CSV</Button>
-          <Button size="sm" variant="outline" leftIcon={<Upload className="h-3.5 w-3.5" />} onClick={() => setImportOpen(true)}>Import CSV</Button>
-          <PermissionGate permission="nutrition.delete">
-            <Button size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { setEditTarget(null); setFormOpen(true) }}>Add</Button>
-          </PermissionGate>
-        </div>
-      </div>
-
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name (EN)</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name (AM)</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Category</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Region</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Dietary</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data?.data.map((item) => (
-                  <tr key={item.id} className="hover:bg-muted/20">
-                    <td className="px-4 py-2.5">
-                      <div className="font-medium">{item.name_en}</div>
-                      {item.food_name && item.food_name !== item.name_en && (
-                        <div className="text-xs text-muted-foreground">{item.food_name}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{item.name_am}</td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground capitalize">{item.category?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground capitalize">{item.region?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className="px-4 py-2.5 hidden lg:table-cell">
-                      <div className="flex gap-1 flex-wrap">
-                        {item.is_vegan && <Badge variant="success">Vegan</Badge>}
-                        {item.is_fasting_safe && <Badge variant="info">Fasting</Badge>}
-                        {!item.is_vegan && item.is_vegetarian && <Badge variant="outline">Veg</Badge>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <PermissionGate permission="nutrition.delete">
-                          <button onClick={() => { setEditTarget(item); setFormOpen(true) }} title="Edit"
-                            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => setDeleteTarget(item)} title="Delete"
-                            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onChange={setPage} />
-        </>
-      )}
-
-      <EthiopianFoodForm open={formOpen} onClose={() => setFormOpen(false)} item={editTarget} />
-      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete}
-        title="Delete Ethiopian Food" message={`Delete "${deleteTarget?.name_en}"? This is a hard delete.`}
-        confirmLabel="Delete" loading={deleting} />
-      <CsvImportModal open={importOpen} onClose={() => setImportOpen(false)} title="Ethiopian Foods"
-        templateHeaders={ETH_CSV_HEADERS} templateRow={ETH_CSV_TEMPLATE_ROW}
-        onImport={(rows) => importEthiopianFoods(rows as Parameters<typeof importEthiopianFoods>[0])}
-        onSuccess={invalidate} />
-    </div>
-  )
-}
-
-// ── Meal Plans Tab ────────────────────────────────────────────────────────────
-
-function MealPlansTab() {
-  const qc = useQueryClient()
-  const [page, setPage] = useState(0)
-  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; day: string; slot: string; name: string } | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['meal-plans-admin', page],
-    queryFn: () => fetchMealPlans(page, PAGE_SIZE),
-    placeholderData: (p) => p,
-  })
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try { await deleteMealPlanRow(deleteTarget.userId, deleteTarget.day, deleteTarget.slot); toast.success('Meal plan row deleted'); qc.invalidateQueries({ queryKey: ['meal-plans-admin'] }) }
-    catch (e) { toast.error((e as Error).message) }
-    finally { setDeleting(false); setDeleteTarget(null) }
-  }
-
-  const handleExport = () => {
-    const rows = data?.data ?? []
-    const csv = arrayToCsv(rows.map((r) => ({ user_id: r.user_id, user_name: r.user_name ?? '', day_of_week: r.day_of_week, meal_slot: r.meal_slot, food_name: r.food_name, calories: r.calories ?? '', protein_g: r.protein_g ?? '', carbs_g: r.carbs_g ?? '', fat_g: r.fat_g ?? '' })))
-    downloadCsv(csv, `meal-plans-${new Date().toISOString().slice(0, 10)}.csv`)
-    toast.success('Exported current page')
-  }
-
-  const SLOT_LABELS: Record<string, string> = { breakfast: 'Breakfast', morningSnack: 'AM Snack', lunch: 'Lunch', afternoonSnack: 'PM Snack', dinner: 'Dinner', beforeBed: 'Before Bed' }
-
-  return (
-    <div className="space-y-4 pt-5">
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>Export page CSV</Button>
-      </div>
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Day</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Meal</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Food</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden md:table-cell">Cal</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden md:table-cell">Protein</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data?.data.map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/20">
-                    <td className="px-4 py-2.5 font-medium truncate max-w-[120px]">{r.user_name ?? <span className="italic text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{r.day_of_week}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{SLOT_LABELS[r.meal_slot] ?? r.meal_slot}</td>
-                    <td className="px-4 py-2.5 max-w-[160px] truncate">{r.food_name}</td>
-                    <td className="px-4 py-2.5 text-right hidden md:table-cell text-muted-foreground tabular-nums">{r.calories?.toFixed(0) ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right hidden md:table-cell text-muted-foreground tabular-nums">{r.protein_g ? `${r.protein_g}g` : '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <PermissionGate permission="nutrition.delete">
-                        <button onClick={() => setDeleteTarget({ userId: r.user_id, day: r.day_of_week, slot: r.meal_slot, name: r.food_name })} title="Delete row"
-                          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors ml-auto">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </PermissionGate>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onChange={setPage} />
-        </>
-      )}
-      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete}
-        title="Delete Meal Plan Row" message={`Delete "${deleteTarget?.name}" from ${deleteTarget?.day} ${deleteTarget?.slot}?`}
-        confirmLabel="Delete" loading={deleting} />
     </div>
   )
 }
 
 // ── Shopping Lists Tab ────────────────────────────────────────────────────────
-
 function ShoppingListsTab() {
   const qc = useQueryClient()
-  const [page, setPage] = useState(0)
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const [weightFilter, setWeightFilter] = useState<WeightCategory>('weight-gain')
+  const [saving, setSaving] = useState(false)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['shopping-admin', page],
-    queryFn: () => fetchShoppingItems(page, PAGE_SIZE),
-    placeholderData: (p) => p,
+  const { data: dbRows = [], isLoading } = useQuery({
+    queryKey: ['presets', 'shopping'],
+    queryFn: () => fetchPresets('shopping'),
   })
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try { await deleteShoppingItem(deleteTarget.id); toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['shopping-admin'] }) }
-    catch (e) { toast.error((e as Error).message) }
-    finally { setDeleting(false); setDeleteTarget(null) }
+  const dbRow = dbRows.find(r => r.id === weightFilter) ?? null
+  const getCategories = (): ShoppingCategories => (dbRow?.data as any)?.categories ?? PRESET_SHOPPING_DATA[weightFilter]
+
+  const saveBack = async (newCats: ShoppingCategories) => {
+    setSaving(true)
+    try {
+      await upsertPreset({
+        id: weightFilter, type: 'shopping',
+        name: dbRow?.name ?? (weightFilter === 'weight-gain' ? 'Weight Gain Shopping List' : 'Weight Loss Shopping List'),
+        name_am: dbRow?.name_am ?? null,
+        description: dbRow?.description ?? null, description_am: dbRow?.description_am ?? null,
+        tags: null, tags_am: null,
+        target_goals: weightFilter === 'weight-gain' ? ['muscle','strength'] : ['fat'],
+        target_bmi_categories: weightFilter === 'weight-gain' ? ['underweight'] : ['overweight','obese'],
+        image_url: dbRow?.image_url ?? null,
+        data: { categories: newCats },
+      })
+      qc.invalidateQueries({ queryKey: ['presets', 'shopping'] })
+      toast.success('Saved')
+    } catch (e) { toast.error((e as Error).message) }
+    finally { setSaving(false) }
   }
 
-  const handleExport = () => {
-    const csv = arrayToCsv((data?.data ?? []).map((r) => ({ user_name: r.user_name ?? '', name: r.name, category: r.category, quantity: r.quantity ?? '', unit: r.unit ?? '', is_checked: r.is_checked, week_of: r.week_of ?? '' })))
-    downloadCsv(csv, `shopping-lists-${new Date().toISOString().slice(0, 10)}.csv`)
-    toast.success('Exported current page')
+  const handleItemSave = async (cat: string, index: number, updated: ShoppingItem & { imageUrl?: string }) => {
+    const cats = getCategories()
+    const newCats: ShoppingCategories = JSON.parse(JSON.stringify(cats))
+    newCats[cat][index] = updated
+    await saveBack(newCats)
   }
 
-  return (
-    <div className="space-y-4 pt-5">
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" leftIcon={<Download className="h-3.5 w-3.5" />} onClick={handleExport}>Export page CSV</Button>
-      </div>
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Item</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Category</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Qty</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Week</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data?.data.map((item) => (
-                  <tr key={item.id} className="hover:bg-muted/20">
-                    <td className="px-4 py-2.5 font-medium truncate max-w-[120px]">{item.user_name ?? <span className="italic text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-2.5">{item.name}</td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground">{item.category}</td>
-                    <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground">{item.quantity ? `${item.quantity} ${item.unit ?? ''}`.trim() : '—'}</td>
-                    <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground">{item.week_of ? formatDate(item.week_of) : '—'}</td>
-                    <td className="px-4 py-2.5">
-                      {item.is_checked
-                        ? <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Done</span>
-                        : <span className="flex items-center gap-1 text-muted-foreground text-xs"><XCircle className="h-3.5 w-3.5" />Pending</span>}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <PermissionGate permission="nutrition.delete">
-                        <button onClick={() => setDeleteTarget({ id: item.id, name: item.name })} title="Delete"
-                          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors ml-auto">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </PermissionGate>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onChange={setPage} />
-        </>
-      )}
-      <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete}
-        title="Delete Shopping Item" message={`Delete "${deleteTarget?.name}"?`} confirmLabel="Delete" loading={deleting} />
-    </div>
-  )
-}
+  const handleItemDelete = async (cat: string, index: number) => {
+    const cats = getCategories()
+    const newCats: ShoppingCategories = JSON.parse(JSON.stringify(cats))
+    newCats[cat].splice(index, 1)
+    await saveBack(newCats)
+  }
 
-// ── Categories Tab ────────────────────────────────────────────────────────────
+  const handleItemAdd = async (cat: string) => {
+    const cats = getCategories()
+    const newCats: ShoppingCategories = JSON.parse(JSON.stringify(cats))
+    newCats[cat].push({ name: 'New item', name_am: '' })
+    await saveBack(newCats)
+  }
 
-function CategoriesTab() {
-  const ethCatQuery = useQuery({
-    queryKey: ['eth-cat-breakdown'],
-    queryFn: async () => {
-      const results = await Promise.all(
-        ETH_CATEGORIES.map(async (cat) => {
-          const { count } = await supabase.from('ethiopian_foods').select('id', { count: 'exact', head: true }).eq('category', cat)
-          return { category: cat, count: count ?? 0 }
-        })
-      )
-      return results
-    },
-  })
+  const handleItemImageUpload = async (cat: string, index: number, file: File): Promise<string> => {
+    const key = `shopping-${weightFilter}-${cat}-${index}`
+    const url = await uploadPresetImage(key, file)
+    const cats = getCategories()
+    const newCats: ShoppingCategories = JSON.parse(JSON.stringify(cats))
+    newCats[cat][index] = { ...newCats[cat][index], imageUrl: url } as any
+    await saveBack(newCats)
+    return url
+  }
 
-  const slotQuery = useQuery({
-    queryKey: ['meal-slot-breakdown'],
-    queryFn: async () => {
-      const results = await Promise.all(
-        MEAL_SLOTS.map(async (slot) => {
-          const { count } = await supabase.from('meal_plans').select('id', { count: 'exact', head: true }).eq('meal_slot', slot)
-          return { slot, count: count ?? 0 }
-        })
-      )
-      return results
-    },
-  })
+  const opt = WEIGHT_OPTIONS.find(o => o.id === weightFilter)!
+  const CatIcon = opt.icon
+  const categories = getCategories()
+  const totalItems = Object.values(categories).flat().length
 
   return (
     <div className="space-y-5 pt-5">
-      <Card>
-        <CardHeader><CardTitle>Ethiopian Food Categories</CardTitle></CardHeader>
-        <CardContent>
-          {ethCatQuery.isLoading ? <Spinner /> : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(ethCatQuery.data ?? []).map((c) => (
-                <div key={c.category} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <span className="text-sm font-medium capitalize">{c.category.replace(/_/g, ' ')}</span>
-                  <Badge variant={c.count > 0 ? 'info' : 'outline'}>{c.count}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Weight filter */}
+      <div className="flex items-center gap-2 p-1 bg-muted/30 rounded-lg w-fit">
+        {WEIGHT_OPTIONS.map(o => {
+          const Icon = o.icon
+          return (
+            <button key={o.id} onClick={() => setWeightFilter(o.id)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${weightFilter === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+              <Icon className={`h-4 w-4 ${o.color}`} />
+              {o.label}
+            </button>
+          )
+        })}
+        {saving && <Spinner size="sm" className="ml-2" />}
+      </div>
 
-      <Card>
-        <CardHeader><CardTitle>Meal Slots</CardTitle></CardHeader>
-        <CardContent>
-          {slotQuery.isLoading ? <Spinner /> : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {(slotQuery.data ?? []).map((s) => (
-                <div key={s.slot} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <span className="text-sm font-medium">{s.slot.replace(/([A-Z])/g, ' $1').replace(/\b\w/g, (c) => c.toUpperCase())}</span>
-                  <Badge variant={s.count > 0 ? 'success' : 'outline'}>{s.count}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Category header icon */}
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${opt.bg}`}>
+        <CatIcon className={`h-6 w-6 ${opt.color}`} />
+        <div>
+          <p className="font-semibold text-sm">{weightFilter === 'weight-gain' ? 'Weight Gain Shopping List' : 'Weight Loss Shopping List'}</p>
+          <p className="text-xs text-muted-foreground">{totalItems} items across {Object.keys(categories).length} categories</p>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader><CardTitle>Food Source Types</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {FOOD_SOURCES.map((src) => (
-              <div key={src} className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm font-medium capitalize">
-                {src.replace(/_/g, ' ')}
+      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
+        <div className="space-y-3">
+          {Object.entries(categories).map(([cat, items]) => (
+            <div key={cat} className="rounded-lg border border-border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm">{cat}</span>
+                  <Badge variant="secondary" className="text-[10px]">{(items as ShoppingItem[]).length}</Badge>
+                </div>
+                <PermissionGate permission="nutrition.delete">
+                  <button onClick={() => handleItemAdd(cat)}
+                    className="flex items-center gap-1 text-xs text-primary hover:underline">
+                    <Plus className="h-3 w-3" />Add item
+                  </button>
+                </PermissionGate>
               </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-3">
-            Source types are database enum values. To add a new source, run an <code className="bg-muted px-1 rounded">ALTER TYPE food_source ADD VALUE</code> migration.
-          </p>
-        </CardContent>
-      </Card>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-border/40 bg-muted/5">
+                    <th className="px-3 py-1.5 w-12"></th>
+                    <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
+                    <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
+                    <th className="px-3 py-1.5 w-20"></th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-border/30">
+                    {(items as (ShoppingItem & { imageUrl?: string })[]).map((item, i) => (
+                      <ShopRow key={i} item={item}
+                        onSave={(updated) => handleItemSave(cat, i, updated)}
+                        onDelete={() => handleItemDelete(cat, i)}
+                        onImageUpload={(f) => handleItemImageUpload(cat, i, f)} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
+// ── Main ──────────────────────────────────────────────────────────────────────
 export function NutritionPage() {
-  const [activeTab, setActiveTab] = useState('overview')
-
+  const [activeTab, setActiveTab] = useState('mealplans')
   return (
-    <PageShell
-      title="Nutrition Administration"
-      description="Manage the food database, Ethiopian foods, meal plans, and shopping lists."
-      icon={Salad}
-    >
+    <PageShell title="Nutrition" description="Manage preset meal plans and shopping lists." icon={Salad}>
       <Tabs tabs={PAGE_TABS} active={activeTab} onChange={setActiveTab} />
-      <TabPanel id="overview"   active={activeTab}><OverviewTab /></TabPanel>
-      <TabPanel id="foods"      active={activeTab}><FoodsTab /></TabPanel>
-      <TabPanel id="ethiopian"  active={activeTab}><EthiopianFoodsTab /></TabPanel>
-      <TabPanel id="mealplans"  active={activeTab}><MealPlansTab /></TabPanel>
-      <TabPanel id="shopping"   active={activeTab}><ShoppingListsTab /></TabPanel>
-      <TabPanel id="categories" active={activeTab}><CategoriesTab /></TabPanel>
+      <TabPanel id="mealplans" active={activeTab}><MealPlansTab /></TabPanel>
+      <TabPanel id="shopping"  active={activeTab}><ShoppingListsTab /></TabPanel>
     </PageShell>
   )
 }
