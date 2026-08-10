@@ -409,7 +409,7 @@ function MealPlansTab() {
                   className="w-full flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left">
                   <div className="flex items-center gap-3">
                     <span className="font-semibold text-sm">{day}</span>
-                    <Badge variant="secondary" className="text-[10px]">{totalFoods} foods</Badge>
+                    <Badge variant="default" className="text-[10px]">{totalFoods} foods</Badge>
                     <span className="text-xs text-muted-foreground">{totalCals} kcal</span>
                   </div>
                   {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -570,7 +570,7 @@ function ShoppingListsTab() {
               <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm">{cat}</span>
-                  <Badge variant="secondary" className="text-[10px]">{(items as ShoppingItem[]).length}</Badge>
+                  <Badge variant="default" className="text-[10px]">{(items as ShoppingItem[]).length}</Badge>
                 </div>
                 <PermissionGate permission="nutrition.delete">
                   <button onClick={() => handleItemAdd(cat)}
