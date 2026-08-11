@@ -3,17 +3,14 @@ import {
   LayoutDashboard,
   Users,
   CreditCard,
-  Wallet,
   Dumbbell,
   Salad,
   BrainCircuit,
   Bell,
-  BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -32,14 +29,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',     to: '/dashboard',      icon: LayoutDashboard },
   { label: 'Users',         to: '/users',          icon: Users,        permission: 'users.view' },
   { label: 'Subscriptions', to: '/subscriptions',  icon: CreditCard,   permission: 'subscriptions.view' },
-  { label: 'Payments',      to: '/payments',       icon: Wallet,       permission: 'payments.view' },
   { label: 'Workouts',      to: '/workouts',       icon: Dumbbell,     permission: 'workouts.view' },
   { label: 'Nutrition',     to: '/nutrition',      icon: Salad,        permission: 'nutrition.view' },
   { label: 'AI Usage',      to: '/ai-usage',       icon: BrainCircuit, permission: 'ai.view' },
   { label: 'Notifications', to: '/notifications',  icon: Bell,         permission: 'notifications.view' },
-  { label: 'Reports',       to: '/reports',        icon: BarChart3,    permission: 'reports.view' },
   { label: 'Settings',      to: '/settings',       icon: Settings,     permission: 'settings.view' },
-  { label: 'Roles',         to: '/roles',          icon: Shield,       permission: 'roles.view' },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────

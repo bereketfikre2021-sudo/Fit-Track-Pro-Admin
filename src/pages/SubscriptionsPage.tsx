@@ -1,6 +1,6 @@
 /**
- * SubscriptionsPage.tsx — Full Subscription Management
- * Tabs: Overview | Plans | Active | Trials | Expired | Renewals | Revenue | Payments | Timeline
+ * SubscriptionsPage.tsx — Subscription Management
+ * Tabs: Plans | Active | Trials | Expired | Renewals | Payments
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -18,22 +18,17 @@ import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { formatDate, formatCurrency } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { PermissionGate } from '@/components/guards/PermissionGate'
 import {
-  fetchAllPlans, fetchSubscriptionsByStatus, fetchSubscriptionStats,
-  fetchUpcomingRenewals, fetchRevenueSummary, fetchSubscriptionEvents,
+  fetchAllPlans, fetchSubscriptionsByStatus,
+  fetchUpcomingRenewals,
   upgradeSubscription, downgradeSubscription, cancelSubscription,
   pauseSubscription, resumeSubscription, grantFreeMonths, manualRenewal,
   type FullSubscription, type SubscriptionPlan,
 } from '@/lib/subscriptions.queries'
-import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
-} from 'recharts'
 
 const PAGE_SIZE = 20
 
@@ -479,84 +474,6 @@ function RenewalsTab({ plans }: { plans: SubscriptionPlan[] }) {
   )
 }
 
-// ── Revenue tab ───────────────────────────────────────────────────────────────
-
-function RevenueTab() {
-  const { data: revenue = [], isLoading } = useQuery({
-    queryKey: ['sub-revenue'],
-    queryFn: () => fetchRevenueSummary(12),
-  })
-
-  const totalGross = revenue.reduce((s, r) => s + r.gross, 0)
-  const totalNet = revenue.reduce((s, r) => s + r.net, 0)
-  const totalFee = revenue.reduce((s, r) => s + r.fee, 0)
-
-  return (
-    <div className="space-y-5 pt-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Total gross (12mo)', value: formatCurrency(totalGross) },
-          { label: 'Total net (12mo)', value: formatCurrency(totalNet) },
-          { label: 'Total fees (12mo)', value: formatCurrency(totalFee) },
-          { label: 'Transactions', value: revenue.reduce((s, r) => s + r.count, 0).toLocaleString() },
-        ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className="text-xl font-bold mt-1">{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {isLoading ? <div className="flex justify-center py-12"><Spinner /></div> : (
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-primary" />Monthly Revenue Breakdown</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={revenue} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
-                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '0.5rem', fontSize: 12 }}
-                  formatter={(v: number, name: string) => [formatCurrency(v), name]} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="gross" name="Gross" fill="hsl(84 81% 44%)" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                <Bar dataKey="net" name="Net" fill="hsl(217 91% 60%)" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                <Bar dataKey="fee" name="Fees" fill="hsl(0 72% 50%)" radius={[3, 3, 0, 0]} maxBarSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Revenue table */}
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Month</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Transactions</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Gross</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Fees</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Net</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {[...revenue].reverse().map((r) => (
-              <tr key={r.month} className="hover:bg-muted/20">
-                <td className="px-4 py-2.5 font-medium">{r.month_label}</td>
-                <td className="px-4 py-2.5 text-right text-muted-foreground tabular-nums">{r.count}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{formatCurrency(r.gross)}</td>
-                <td className="px-4 py-2.5 text-right text-red-400 tabular-nums">{formatCurrency(r.fee)}</td>
-                <td className="px-4 py-2.5 text-right text-emerald-400 font-medium tabular-nums">{formatCurrency(r.net)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
 // ── Payment history tab ───────────────────────────────────────────────────────
 
 function PaymentHistoryTab() {
@@ -631,74 +548,19 @@ function PaymentHistoryTab() {
   )
 }
 
-// ── Overview stats tab ────────────────────────────────────────────────────────
-
-function OverviewTab({ plans }: { plans: SubscriptionPlan[] }) {
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ['sub-stats'],
-    queryFn: fetchSubscriptionStats,
-  })
-  const { data: revenue = [] } = useQuery({
-    queryKey: ['sub-revenue'],
-    queryFn: () => fetchRevenueSummary(6),
-  })
-
-  const planDistData = plans.map((p) => ({ name: p.name, value: 0 })) // placeholder — real data from stats
-
-  if (isLoading) return <div className="flex justify-center py-12"><Spinner /></div>
-
-  return (
-    <div className="space-y-5 pt-5">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        {[
-          { label: 'Active', value: stats?.active ?? 0, color: 'text-emerald-400' },
-          { label: 'Trialing', value: stats?.trialing ?? 0, color: 'text-blue-400' },
-          { label: 'Paused', value: stats?.paused ?? 0, color: 'text-slate-400' },
-          { label: 'Past due', value: stats?.past_due ?? 0, color: 'text-amber-400' },
-          { label: 'Cancelled', value: stats?.cancelled ?? 0, color: 'text-orange-400' },
-          { label: 'Expired', value: stats?.expired ?? 0, color: 'text-red-400' },
-        ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-primary" />Revenue trend — last 6 months</CardTitle></CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={revenue} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
-              <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '0.5rem', fontSize: 12 }}
-                formatter={(v: number) => [formatCurrency(v), 'Net revenue']} />
-              <Line type="monotone" dataKey="net" stroke="hsl(84 81% 44%)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'overview',  label: 'Overview',     icon: CreditCard },
   { id: 'plans',     label: 'Plans',        icon: DollarSign },
   { id: 'active',    label: 'Active',       icon: Play },
   { id: 'trials',    label: 'Trials',       icon: Clock },
   { id: 'expired',   label: 'Expired',      icon: AlertCircle },
   { id: 'renewals',  label: 'Renewals',     icon: CalendarDays },
-  { id: 'revenue',   label: 'Revenue',      icon: DollarSign },
   { id: 'payments',  label: 'Payments',     icon: CreditCard },
 ]
 
 export function SubscriptionsPage() {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('plans')
 
   const { data: plans = [], isLoading: plansLoading, refetch } = useQuery({
     queryKey: ['all-plans'],
@@ -708,7 +570,7 @@ export function SubscriptionsPage() {
   return (
     <PageShell
       title="Subscriptions"
-      description="Full subscription lifecycle management with provider integration hooks."
+      description="Manage plans, active subscriptions, renewals, and payments."
       icon={CreditCard}
       actions={
         <Button variant="outline" size="sm" leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
@@ -719,13 +581,11 @@ export function SubscriptionsPage() {
     >
       <Tabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <TabPanel id="overview"  active={activeTab}><OverviewTab plans={plans} /></TabPanel>
       <TabPanel id="plans"     active={activeTab}><PlansTab plans={plans} onRefresh={refetch} /></TabPanel>
       <TabPanel id="active"    active={activeTab}><SubTable queryKey="sub-active"   statuses={['active']}   plans={plans} /></TabPanel>
       <TabPanel id="trials"    active={activeTab}><SubTable queryKey="sub-trialing" statuses={['trialing']} plans={plans} /></TabPanel>
       <TabPanel id="expired"   active={activeTab}><SubTable queryKey="sub-expired"  statuses={['expired', 'cancelled', 'past_due']} plans={plans} /></TabPanel>
       <TabPanel id="renewals"  active={activeTab}><RenewalsTab plans={plans} /></TabPanel>
-      <TabPanel id="revenue"   active={activeTab}><RevenueTab /></TabPanel>
       <TabPanel id="payments"  active={activeTab}><PaymentHistoryTab /></TabPanel>
     </PageShell>
   )

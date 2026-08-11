@@ -12,9 +12,10 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef } from 'react'
-import { Dumbbell, Search, ImageIcon, Flame, ChevronDown, ChevronUp, Copy } from 'lucide-react'
+import { Dumbbell, Search, ImageIcon, Flame, ChevronDown, ChevronUp, Copy, Plus, Trash2, Check, X, ArrowUp, ArrowDown, Pencil } from 'lucide-react'
 import { PageShell } from '@/components/layout/PageShell'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { Tabs, TabPanel } from '@/components/ui/Tabs'
 import { toast } from 'sonner'
@@ -231,7 +232,8 @@ const WORKOUT_TEMPLATES = [
 ]
 
 type WorkoutTpl = typeof WORKOUT_TEMPLATES[0]
-type TplExercise = { name: string; sets: string; reps: string; rest: string }
+type TplExercise = { name: string; sets: string; reps: string; rest: string; imageUrl?: string }
+type ScheduleMap = Record<string, TplExercise[]>
 
 // ── 60 preset exercises ───────────────────────────────────────────────────────
 const PRESET_EXERCISES = [
@@ -297,14 +299,12 @@ const PRESET_EXERCISES = [
   { id:'p-59', name:'Deep Squat Hold',            category:'Mobility', muscleGroup:'Hips',      difficulty:'Beginner',     equipment:'Bodyweight', goals:['Mobility','General Fitness'],                    sets:'2', reps:'60s'   },
 ]
 
-type LibraryEx = typeof PRESET_EXERCISES[0]
-
 const WEIGHT_PLAN_GOALS: Record<string, string[]> = {
   'weight-gain': ['Muscle Gain', 'Strength', 'General Fitness'],
   'weight-loss': ['Weight Loss', 'General Fitness'],
 }
 
-// ── Shared image thumbnail for exercise rows ──────────────────────────────────
+// ── Shared image thumbnail ────────────────────────────────────────────────────
 function ExThumbnail({ url, onUpload, uploading, title }: {
   url?: string; onUpload: (f: File) => void; uploading: boolean; title?: string
 }) {
@@ -327,20 +327,172 @@ function ExThumbnail({ url, onUpload, uploading, title }: {
   )
 }
 
-// ── Tab 1: Exercise Library ────────────────────────────────────────────────────
+// ── Exercise library editable row ─────────────────────────────────────────────
+
+type LibraryExFull = {
+  id: string; name: string; category: string; muscleGroup: string
+  difficulty: string; equipment: string; goals: string[]; sets: string; reps: string; imageUrl?: string
+}
+
+const GOALS_OPTIONS = ['Muscle Gain', 'Strength', 'Weight Loss', 'General Fitness', 'Mobility']
+const DIFF_OPTIONS  = ['Beginner', 'Intermediate', 'Advanced', 'Elite']
+const CAT_OPTIONS   = ['Strength', 'Cardio', 'Mobility']
+
+function LibraryExRow({ ex, imgUrl, uploading, onUploadImage, onSave, onDelete }: {
+  ex: LibraryExFull; imgUrl?: string; uploading: boolean
+  onUploadImage: (f: File) => void
+  onSave: (updated: LibraryExFull) => void
+  onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<LibraryExFull>({ ...ex })
+  const ipt = 'h-7 text-xs px-1.5 rounded border border-input bg-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+  const commit = () => { onSave(draft); setEditing(false) }
+  const cancel = () => { setDraft({ ...ex }); setEditing(false) }
+  return (
+    <tr className={`hover:bg-muted/20 group ${editing ? 'bg-primary/5' : ''}`}>
+      <td className="px-3 py-2 w-12">
+        <ExThumbnail url={imgUrl ?? ex.imageUrl} uploading={uploading} title={`Upload image for ${ex.name}`} onUpload={onUploadImage} />
+      </td>
+      {editing ? (
+        <>
+          <td className="px-2 py-2"><input autoFocus value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }} className={`${ipt} w-full min-w-[120px]`} /></td>
+          <td className="px-2 py-2 hidden sm:table-cell"><input value={draft.muscleGroup} onChange={e => setDraft(d => ({ ...d, muscleGroup: e.target.value }))} className={`${ipt} w-24`} /></td>
+          <td className="px-2 py-2 hidden md:table-cell"><input value={draft.equipment} onChange={e => setDraft(d => ({ ...d, equipment: e.target.value }))} className={`${ipt} w-24`} /></td>
+          <td className="px-2 py-2"><select value={draft.difficulty} onChange={e => setDraft(d => ({ ...d, difficulty: e.target.value }))} className={`${ipt} w-28 pr-1`}>{DIFF_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></td>
+          <td className="px-2 py-2 hidden lg:table-cell">
+            <div className="flex gap-1">
+              <input value={draft.sets} onChange={e => setDraft(d => ({ ...d, sets: e.target.value }))} className={`${ipt} w-10 text-center`} placeholder="3" />
+              <span className="text-muted-foreground self-center text-xs">×</span>
+              <input value={draft.reps} onChange={e => setDraft(d => ({ ...d, reps: e.target.value }))} className={`${ipt} w-16 text-center`} placeholder="10" />
+            </div>
+          </td>
+          <td className="px-2 py-2 hidden lg:table-cell">
+            <div className="flex flex-wrap gap-1">
+              {GOALS_OPTIONS.map(g => (
+                <label key={g} className="flex items-center gap-1 text-[10px] cursor-pointer select-none">
+                  <input type="checkbox" checked={draft.goals.includes(g)} onChange={e => setDraft(d => ({ ...d, goals: e.target.checked ? [...d.goals, g] : d.goals.filter(x => x !== g) }))} className="w-3 h-3" />{g}
+                </label>
+              ))}
+            </div>
+          </td>
+          <td className="px-2 py-2"><div className="flex gap-1">
+            <button onClick={commit} className="h-6 w-6 flex items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={cancel} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+          </div></td>
+        </>
+      ) : (
+        <>
+          <td className="px-4 py-2.5 font-medium text-sm">{ex.name}</td>
+          <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground text-sm">{ex.muscleGroup}</td>
+          <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground text-sm">{ex.equipment}</td>
+          <td className="px-4 py-2.5"><Badge variant={DIFF_BADGE[ex.difficulty.toLowerCase()] ?? 'outline'}>{ex.difficulty}</Badge></td>
+          <td className="px-4 py-2.5 hidden lg:table-cell text-muted-foreground text-xs">{ex.sets} × {ex.reps}</td>
+          <td className="px-4 py-2.5 hidden lg:table-cell">
+            <div className="flex flex-wrap gap-1">
+              {(ex.goals.includes('Muscle Gain') || ex.goals.includes('Strength')) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">Gain</span>}
+              {ex.goals.includes('Weight Loss') && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">Loss</span>}
+              {ex.goals.includes('Mobility') && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">Mobility</span>}
+            </div>
+          </td>
+          <td className="px-2 py-2.5"><div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => { setDraft({ ...ex }); setEditing(true) }} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted" title="Edit"><Pencil className="h-3 w-3" /></button>
+            <button onClick={onDelete} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Delete"><Trash2 className="h-3 w-3" /></button>
+          </div></td>
+        </>
+      )}
+    </tr>
+  )
+}
+
+// ── LibraryExRow with checkbox ────────────────────────────────────────────────
+function LibraryExRowSelectable({ ex, imgUrl, uploading, selected, onToggleSelect, onUploadImage, onSave, onDelete }: {
+  ex: LibraryExFull; imgUrl?: string; uploading: boolean; selected: boolean
+  onToggleSelect: () => void
+  onUploadImage: (f: File) => void
+  onSave: (updated: LibraryExFull) => void
+  onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<LibraryExFull>({ ...ex })
+  const ipt = 'h-7 text-xs px-1.5 rounded border border-input bg-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+  const commit = () => { onSave(draft); setEditing(false) }
+  const cancel = () => { setDraft({ ...ex }); setEditing(false) }
+  return (
+    <tr className={`hover:bg-muted/20 group ${selected ? 'bg-primary/5' : ''} ${editing ? '!bg-primary/5' : ''}`}>
+      <td className="px-3 py-2 w-8">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+      </td>
+      <td className="px-3 py-2 w-12">
+        <ExThumbnail url={imgUrl ?? ex.imageUrl} uploading={uploading} title={`Upload image for ${ex.name}`} onUpload={onUploadImage} />
+      </td>
+      {editing ? (
+        <>
+          <td className="px-2 py-2"><input autoFocus value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }} className={`${ipt} w-full min-w-[120px]`} /></td>
+          <td className="px-2 py-2 hidden sm:table-cell"><input value={draft.muscleGroup} onChange={e => setDraft(d => ({ ...d, muscleGroup: e.target.value }))} className={`${ipt} w-24`} /></td>
+          <td className="px-2 py-2 hidden md:table-cell"><input value={draft.equipment} onChange={e => setDraft(d => ({ ...d, equipment: e.target.value }))} className={`${ipt} w-24`} /></td>
+          <td className="px-2 py-2"><select value={draft.difficulty} onChange={e => setDraft(d => ({ ...d, difficulty: e.target.value }))} className={`${ipt} w-28 pr-1`}>{DIFF_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></td>
+          <td className="px-2 py-2 hidden lg:table-cell">
+            <div className="flex gap-1">
+              <input value={draft.sets} onChange={e => setDraft(d => ({ ...d, sets: e.target.value }))} className={`${ipt} w-10 text-center`} />
+              <span className="text-muted-foreground self-center text-xs">×</span>
+              <input value={draft.reps} onChange={e => setDraft(d => ({ ...d, reps: e.target.value }))} className={`${ipt} w-16 text-center`} />
+            </div>
+          </td>
+          <td className="px-2 py-2 hidden lg:table-cell">
+            <div className="flex flex-wrap gap-1">{GOALS_OPTIONS.map(g => <label key={g} className="flex items-center gap-1 text-[10px] cursor-pointer"><input type="checkbox" checked={draft.goals.includes(g)} onChange={e => setDraft(d => ({ ...d, goals: e.target.checked ? [...d.goals, g] : d.goals.filter(x => x !== g) }))} className="w-3 h-3" />{g}</label>)}</div>
+          </td>
+          <td className="px-2 py-2"><div className="flex gap-1">
+            <button onClick={commit} className="h-6 w-6 flex items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={cancel} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+          </div></td>
+        </>
+      ) : (
+        <>
+          <td className="px-4 py-2.5 font-medium text-sm">{ex.name}</td>
+          <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground text-sm">{ex.muscleGroup}</td>
+          <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground text-sm">{ex.equipment}</td>
+          <td className="px-4 py-2.5"><Badge variant={DIFF_BADGE[ex.difficulty.toLowerCase()] ?? 'outline'}>{ex.difficulty}</Badge></td>
+          <td className="px-4 py-2.5 hidden lg:table-cell text-muted-foreground text-xs">{ex.sets} × {ex.reps}</td>
+          <td className="px-4 py-2.5 hidden lg:table-cell">
+            <div className="flex flex-wrap gap-1">
+              {(ex.goals.includes('Muscle Gain') || ex.goals.includes('Strength')) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">Gain</span>}
+              {ex.goals.includes('Weight Loss') && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">Loss</span>}
+              {ex.goals.includes('Mobility') && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">Mobility</span>}
+            </div>
+          </td>
+          <td className="px-2 py-2.5"><div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => { setDraft({ ...ex }); setEditing(true) }} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted"><Pencil className="h-3 w-3" /></button>
+            <button onClick={onDelete} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"><Trash2 className="h-3 w-3" /></button>
+          </div></td>
+        </>
+      )}
+    </tr>
+  )
+}
+
+// ── Tab 1: Exercise Library ───────────────────────────────────────────────────
 function ExerciseLibraryTab() {
   const qc = useQueryClient()
-  const [weightFilter, setWeightFilter] = useState<'all' | 'weight-gain' | 'weight-loss'>('all')
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'Strength' | 'Cardio' | 'Mobility'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('Strength')
   const [search, setSearch] = useState('')
   const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [localExercises, setLocalExercises] = useState<LibraryExFull[] | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const { data: savedPresets = [] } = useQuery({
     queryKey: ['presets', 'exercise'],
     queryFn: () => fetchPresets('exercise'),
   })
 
-  // Build image map from saved preset rows keyed by exercise id
+  const dbLibraryRow = savedPresets.find(r => r.id === 'library-exercises')
+  const dbExercises = dbLibraryRow ? ((dbLibraryRow.data as any)?.exercises as LibraryExFull[]) ?? null : null
+  const baseExercises: LibraryExFull[] = (dbExercises ?? PRESET_EXERCISES.map(e => ({ ...e }))) as LibraryExFull[]
+  const exercises = localExercises ?? baseExercises
+  const isDirty = localExercises !== null
+
   const imageMap: Record<string, string> = {}
   for (const row of savedPresets) {
     for (const ex of ((row.data as any)?.exercises ?? [])) {
@@ -348,129 +500,386 @@ function ExerciseLibraryTab() {
     }
   }
 
-  const handleImageUpload = async (ex: LibraryEx, file: File) => {
+  const mutate = (fn: (list: LibraryExFull[]) => LibraryExFull[]) =>
+    setLocalExercises(fn([...(localExercises ?? baseExercises)]))
+
+  const toggleSelect = (id: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const toggleSelectAll = (ids: string[]) => {
+    const all = ids.every(id => selected.has(id))
+    setSelected(prev => { const n = new Set(prev); ids.forEach(id => all ? n.delete(id) : n.add(id)); return n })
+  }
+
+  const handleBulkDelete = async () => {
+    if (!selected.size) return
+    setBulkDeleting(true)
+    try {
+      const updated = (localExercises ?? baseExercises).filter(e => !selected.has(e.id))
+      setLocalExercises(updated)
+      setSelected(new Set())
+    } finally { setBulkDeleting(false) }
+  }
+
+  const saveLibrary = async () => {
+    if (!localExercises) return
+    setSaving(true)
+    try {
+      await upsertPreset({
+        id: 'library-exercises', type: 'exercise',
+        name: 'Exercise Library', name_am: null,
+        description: null, description_am: null, tags: null, tags_am: null,
+        target_goals: [], target_bmi_categories: [],
+        image_url: null, data: { exercises: localExercises },
+      })
+      // Refetch first — clears local state only after cache is warm
+      await qc.refetchQueries({ queryKey: ['presets', 'exercise'] })
+      setLocalExercises(null)
+      toast.success('Exercise library saved')
+    } catch (e) { toast.error((e as Error).message) }
+    finally { setSaving(false) }
+  }
+
+  const handleImageUpload = async (ex: LibraryExFull, file: File) => {
     setUploadingId(ex.id)
     try {
       const url = await uploadPresetImage(`library-${ex.id}`, file)
-      const planId = ex.goals.includes('Weight Loss') && !ex.goals.includes('Muscle Gain')
-        ? 'exercise-weight-loss' : 'exercise-weight-gain'
-      const existing = savedPresets.find(r => r.id === planId)
-      const exercises: any[] = existing ? [...((existing.data as any).exercises ?? [])] : []
-      const idx = exercises.findIndex((e: any) => e.id === ex.id)
-      if (idx >= 0) exercises[idx] = { ...exercises[idx], imageUrl: url }
-      else exercises.push({ id: ex.id, name: ex.name, imageUrl: url })
+      const updated = (localExercises ?? baseExercises).map(e => e.id === ex.id ? { ...e, imageUrl: url } : e)
+      mutate(() => updated)
       await upsertPreset({
-        id: planId, type: 'exercise',
-        name: planId === 'exercise-weight-gain' ? 'Weight Gain Exercises' : 'Weight Loss Exercises',
-        name_am: null, description: null, description_am: null, tags: null, tags_am: null,
-        target_goals: planId === 'exercise-weight-gain' ? ['muscle','strength'] : ['fat'],
-        target_bmi_categories: planId === 'exercise-weight-gain' ? ['underweight'] : ['overweight','obese'],
-        image_url: null, data: { exercises },
+        id: 'library-exercises', type: 'exercise',
+        name: 'Exercise Library', name_am: null,
+        description: null, description_am: null, tags: null, tags_am: null,
+        target_goals: [], target_bmi_categories: [],
+        image_url: null, data: { exercises: updated },
       })
-      qc.invalidateQueries({ queryKey: ['presets', 'exercise'] })
+      await qc.refetchQueries({ queryKey: ['presets', 'exercise'] })
       toast.success(`Image saved for ${ex.name}`)
     } catch (e) { toast.error((e as Error).message) }
     finally { setUploadingId(null) }
   }
 
-  const filtered = PRESET_EXERCISES.filter(ex => {
+  const addExercise = (category: string) => {
+    mutate(list => [...list, {
+      id: `custom-${Date.now()}`, name: 'New Exercise', category,
+      muscleGroup: '', equipment: 'Bodyweight',
+      difficulty: 'Beginner', goals: ['General Fitness'], sets: '3', reps: '10',
+    }])
+  }
+
+  const filtered = exercises.filter(ex => {
     if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) return false
     if (categoryFilter !== 'all' && ex.category !== categoryFilter) return false
-    if (weightFilter !== 'all') {
-      const allowed = WEIGHT_PLAN_GOALS[weightFilter] ?? []
-      if (!ex.goals.some(g => allowed.includes(g))) return false
-    }
     return true
   })
 
-  const groups = (['Strength','Cardio','Mobility'] as const)
-    .map(cat => ({ category: cat, items: filtered.filter(e => e.category === cat) }))
-    .filter(g => g.items.length > 0)
+  const categories = ['Strength', 'Cardio', 'Mobility', ...new Set(exercises.map(e => e.category).filter(c => !['Strength','Cardio','Mobility'].includes(c)))]
+  const activeItems = filtered.filter(e => e.category === categoryFilter || categoryFilter === 'all')
 
   return (
     <div className="space-y-5 pt-5">
-      {/* Filters */}
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg">
-          {(['all','weight-gain','weight-loss'] as const).map(v => (
-            <button key={v} onClick={() => setWeightFilter(v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${weightFilter === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
-              {v === 'weight-gain' && <Dumbbell className="h-3.5 w-3.5 text-blue-400" />}
-              {v === 'weight-loss' && <Flame className="h-3.5 w-3.5 text-orange-400" />}
-              {v === 'all' ? 'All Plans' : v === 'weight-gain' ? 'Weight Gain' : 'Weight Loss'}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg">
-          {(['all','Strength','Cardio','Mobility'] as const).map(v => (
-            <button key={v} onClick={() => setCategoryFilter(v)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${categoryFilter === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
-              {v === 'all' ? 'All' : v}
-            </button>
-          ))}
-        </div>
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input type="search" placeholder="Search exercises…" value={search} onChange={e => setSearch(e.target.value)}
             className="flex h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
         </div>
-        <span className="text-xs text-muted-foreground">{filtered.length} exercises</span>
-      </div>
-
-      {/* Grouped tables */}
-      <div className="space-y-6">
-        {groups.map(group => (
-          <div key={group.category}>
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              {group.category} · {group.items.length}
-            </h3>
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-border bg-muted/30">
-                  <th className="px-3 py-2.5 w-12"></th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Exercise</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Muscle</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden md:table-cell">Equipment</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Difficulty</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden lg:table-cell">Sets/Reps</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden lg:table-cell">Plans</th>
-                </tr></thead>
-                <tbody className="divide-y divide-border">
-                  {group.items.map(ex => (
-                    <tr key={ex.id} className="hover:bg-muted/20">
-                      <td className="px-3 py-2">
-                        <ExThumbnail url={imageMap[ex.id]} uploading={uploadingId === ex.id}
-                          title={`Upload image for ${ex.name}`} onUpload={(f) => handleImageUpload(ex, f)} />
-                      </td>
-                      <td className="px-4 py-2.5 font-medium">{ex.name}</td>
-                      <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground">{ex.muscleGroup}</td>
-                      <td className="px-4 py-2.5 hidden md:table-cell text-muted-foreground">{ex.equipment}</td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant={DIFF_BADGE[ex.difficulty.toLowerCase()] ?? 'outline'}>{ex.difficulty}</Badge>
-                      </td>
-                      <td className="px-4 py-2.5 hidden lg:table-cell text-muted-foreground text-xs">{ex.sets} × {ex.reps}</td>
-                      <td className="px-4 py-2.5 hidden lg:table-cell">
-                        <div className="flex flex-wrap gap-1">
-                          {(ex.goals.includes('Muscle Gain') || ex.goals.includes('Strength')) && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">Gain</span>
-                          )}
-                          {ex.goals.includes('Weight Loss') && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">Loss</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
-        {groups.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground text-sm">No exercises match the current filters.</div>
+        <span className="text-xs text-muted-foreground">{activeItems.length} exercises</span>
+        {isDirty && (
+          <>
+            <button onClick={saveLibrary} disabled={saving}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50">
+              {saving ? <Spinner size="sm" /> : <Check className="h-3.5 w-3.5" />} Save library
+            </button>
+            <button onClick={() => setLocalExercises(null)}
+              className="h-8 px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted">
+              Discard
+            </button>
+          </>
         )}
       </div>
+
+      {isDirty && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <span className="text-xs text-amber-400">Unsaved changes — click "Save library" to persist to all users.</span>
+        </div>
+      )}
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5">
+          <span className="text-sm font-medium text-destructive">{selected.size} exercise{selected.size > 1 ? 's' : ''} selected</span>
+          <button onClick={handleBulkDelete} disabled={bulkDeleting}
+            className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 disabled:opacity-50">
+            {bulkDeleting ? <Spinner size="sm" /> : <Trash2 className="h-3.5 w-3.5" />} Delete selected
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-auto">Clear</button>
+        </div>
+      )}
+
+      {/* Horizontal category tabs */}
+      <div className="flex gap-1 overflow-x-auto pb-0.5 border-b border-border" role="tablist">
+        {categories.map(cat => {
+          const count = exercises.filter(e => e.category === cat && (!search || e.name.toLowerCase().includes(search.toLowerCase()))).length
+          return (
+            <button key={cat} role="tab" aria-selected={categoryFilter === cat}
+              onClick={() => { setCategoryFilter(cat); setSelected(new Set()) }}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${categoryFilter === cat ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}>
+              {cat}
+              <span className="text-[10px] tabular-nums opacity-70">{count}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Active category table */}
+      {(() => {
+        const groupIds = activeItems.map(e => e.id)
+        const allGroupSel = groupIds.length > 0 && groupIds.every(id => selected.has(id))
+        const someGroupSel = groupIds.some(id => selected.has(id))
+        return (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border bg-muted/30">
+                <th className="px-3 py-2.5 w-8">
+                  <input type="checkbox" checked={allGroupSel}
+                    ref={el => { if (el) el.indeterminate = someGroupSel && !allGroupSel }}
+                    onChange={() => toggleSelectAll(groupIds)}
+                    className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+                </th>
+                <th className="px-3 py-2.5 w-12"></th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Exercise</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Muscle</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden md:table-cell">Equipment</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Difficulty</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden lg:table-cell">Sets / Reps</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground hidden lg:table-cell">Plans</th>
+                <th className="px-4 py-2.5 w-16"></th>
+              </tr></thead>
+              <tbody className="divide-y divide-border">
+                {activeItems.map(ex => (
+                  <LibraryExRowSelectable
+                    key={ex.id}
+                    ex={ex}
+                    imgUrl={imageMap[ex.id]}
+                    uploading={uploadingId === ex.id}
+                    selected={selected.has(ex.id)}
+                    onToggleSelect={() => toggleSelect(ex.id)}
+                    onUploadImage={f => handleImageUpload(ex, f)}
+                    onSave={updated => mutate(list => list.map(e => e.id === ex.id ? updated : e))}
+                    onDelete={() => mutate(list => list.filter(e => e.id !== ex.id))}
+                  />
+                ))}
+              </tbody>
+            </table>
+            <div className="px-4 py-2 border-t border-border/40">
+              <button onClick={() => addExercise(categoryFilter)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5">
+                <Plus className="h-3.5 w-3.5" /> Add exercise to {categoryFilter}
+              </button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
+  )
+}
+
+// ── Inline editable exercise row for templates ────────────────────────────────
+type TplExRowProps = {
+  ex: TplExercise
+  rowKey: string
+  index: number
+  totalRows: number
+  uploadingKey: string | null
+  onSave: (updated: TplExercise) => void
+  onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onImageUpload: (f: File) => void
+}
+
+function TplExRow({ ex, rowKey, index, totalRows, uploadingKey, onSave, onDelete, onMoveUp, onMoveDown, onImageUpload }: TplExRowProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<TplExercise>({ ...ex })
+
+  if (editing) {
+    return (
+      <tr className="bg-primary/5">
+        <td className="px-3 py-2">
+          <ExThumbnail url={draft.imageUrl} uploading={uploadingKey === rowKey}
+            title={`Upload image for ${draft.name}`} onUpload={onImageUpload} />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-16">
+          <input value={draft.sets} onChange={e => setDraft(d => ({ ...d, sets: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-20">
+          <input value={draft.reps} onChange={e => setDraft(d => ({ ...d, reps: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-16 hidden sm:table-cell">
+          <input value={draft.rest} onChange={e => setDraft(d => ({ ...d, rest: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-24">
+          <div className="flex gap-1">
+            <button onClick={() => { onSave(draft); setEditing(false) }}
+              className="flex h-7 w-7 items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Save">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => { setDraft({ ...ex }); setEditing(false) }}
+              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary transition-colors" title="Cancel">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="hover:bg-muted/20 group">
+      <td className="px-3 py-2">
+        <ExThumbnail url={ex.imageUrl} uploading={uploadingKey === rowKey}
+          title={`Upload image for ${ex.name}`} onUpload={onImageUpload} />
+      </td>
+      <td className="px-3 py-2 font-medium text-sm cursor-pointer" onClick={() => { setDraft({ ...ex }); setEditing(true) }}>
+        {ex.name || <span className="text-muted-foreground italic">Unnamed exercise</span>}
+      </td>
+      <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums cursor-pointer"
+        onClick={() => { setDraft({ ...ex }); setEditing(true) }}>{ex.sets}</td>
+      <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums cursor-pointer"
+        onClick={() => { setDraft({ ...ex }); setEditing(true) }}>{ex.reps}</td>
+      <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums hidden sm:table-cell cursor-pointer"
+        onClick={() => { setDraft({ ...ex }); setEditing(true) }}>{ex.rest}</td>
+      <td className="px-2 py-2 w-24">
+        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onMoveUp} disabled={index === 0}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors" title="Move up">
+            <ArrowUp className="h-3 w-3" />
+          </button>
+          <button onClick={onMoveDown} disabled={index === totalRows - 1}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors" title="Move down">
+            <ArrowDown className="h-3 w-3" />
+          </button>
+          <button onClick={onDelete}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors" title="Delete exercise">
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+// ── Editable exercise row for templates ──────────────────────────────────────
+function ExerciseRow({ ex, imgUrl, uploading, isFirst, isLast, onUploadImage, onSave, onDelete, onMoveUp, onMoveDown }: {
+  ex: TplExercise; imgUrl?: string; uploading: boolean
+  isFirst: boolean; isLast: boolean
+  onUploadImage: (f: File) => void
+  onSave: (updated: TplExercise) => void
+  onDelete: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [buf, setBuf] = useState<TplExercise>(ex)
+  const ipt = 'h-7 text-xs px-1.5 rounded border border-input bg-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+
+  const commit = () => { onSave(buf); setEditing(false) }
+  const cancel = () => { setBuf(ex); setEditing(false) }
+
+  return (
+    <tr className="hover:bg-muted/20 group">
+      <td className="px-3 py-2">
+        <ExThumbnail url={imgUrl} uploading={uploading} title={`Upload image for ${ex.name}`} onUpload={onUploadImage} />
+      </td>
+      {editing ? (
+        <>
+          <td className="px-3 py-2"><input autoFocus value={buf.name} onChange={e => setBuf(b => ({ ...b, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }} className={`${ipt} w-full min-w-[120px]`} /></td>
+          <td className="px-3 py-2 text-center"><input value={buf.sets} onChange={e => setBuf(b => ({ ...b, sets: e.target.value }))} className={`${ipt} w-12 text-center`} /></td>
+          <td className="px-3 py-2 text-center"><input value={buf.reps} onChange={e => setBuf(b => ({ ...b, reps: e.target.value }))} className={`${ipt} w-16 text-center`} /></td>
+          <td className="px-3 py-2 text-center hidden sm:table-cell"><input value={buf.rest} onChange={e => setBuf(b => ({ ...b, rest: e.target.value }))} className={`${ipt} w-14 text-center`} /></td>
+          <td className="px-3 py-2 text-right">
+            <div className="flex items-center justify-end gap-1">
+              <button onClick={commit} className="h-6 w-6 flex items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+              <button onClick={cancel} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          </td>
+        </>
+      ) : (
+        <>
+          <td className="px-3 py-2 font-medium text-sm">{ex.name}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.sets}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.reps}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums hidden sm:table-cell">{ex.rest}</td>
+          <td className="px-3 py-2 text-right">
+            <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => { setBuf(ex); setEditing(true) }} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted" title="Edit"><Pencil className="h-3 w-3" /></button>
+              <button disabled={isFirst} onClick={onMoveUp} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30" title="Move up"><ArrowUp className="h-3 w-3" /></button>
+              <button disabled={isLast} onClick={onMoveDown} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30" title="Move down"><ArrowDown className="h-3 w-3" /></button>
+              <button onClick={onDelete} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Delete"><Trash2 className="h-3 w-3" /></button>
+            </div>
+          </td>
+        </>
+      )}
+    </tr>
+  )
+}
+
+// ── ExerciseRow with checkbox ─────────────────────────────────────────────────
+function ExerciseRowSelectable({ ex, imgUrl, uploading, selected, onToggleSelect, isFirst, isLast, onUploadImage, onSave, onDelete, onMoveUp, onMoveDown }: {
+  ex: TplExercise; imgUrl?: string; uploading: boolean; selected: boolean
+  onToggleSelect: () => void; isFirst: boolean; isLast: boolean
+  onUploadImage: (f: File) => void
+  onSave: (updated: TplExercise) => void
+  onDelete: () => void; onMoveUp: () => void; onMoveDown: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [buf, setBuf] = useState<TplExercise>(ex)
+  const ipt = 'h-7 text-xs px-1.5 rounded border border-input bg-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+  const commit = () => { onSave(buf); setEditing(false) }
+  const cancel = () => { setBuf(ex); setEditing(false) }
+  return (
+    <tr className={`hover:bg-muted/20 group ${selected ? 'bg-primary/5' : ''} ${editing ? '!bg-primary/5' : ''}`}>
+      <td className="px-3 py-2 w-8">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+      </td>
+      <td className="px-3 py-2 w-12">
+        <ExThumbnail url={imgUrl} uploading={uploading} title={`Upload image for ${ex.name}`} onUpload={onUploadImage} />
+      </td>
+      {editing ? (
+        <>
+          <td className="px-3 py-2"><input autoFocus value={buf.name} onChange={e => setBuf(b => ({ ...b, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }} className={`${ipt} w-full min-w-[120px]`} /></td>
+          <td className="px-3 py-2 text-center"><input value={buf.sets} onChange={e => setBuf(b => ({ ...b, sets: e.target.value }))} className={`${ipt} w-12 text-center`} /></td>
+          <td className="px-3 py-2 text-center"><input value={buf.reps} onChange={e => setBuf(b => ({ ...b, reps: e.target.value }))} className={`${ipt} w-16 text-center`} /></td>
+          <td className="px-3 py-2 text-center hidden sm:table-cell"><input value={buf.rest} onChange={e => setBuf(b => ({ ...b, rest: e.target.value }))} className={`${ipt} w-14 text-center`} /></td>
+          <td className="px-3 py-2"><div className="flex gap-1">
+            <button onClick={commit} className="h-6 w-6 flex items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={cancel} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+          </div></td>
+        </>
+      ) : (
+        <>
+          <td className="px-3 py-2 font-medium text-sm">{ex.name}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.sets}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.reps}</td>
+          <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums hidden sm:table-cell">{ex.rest}</td>
+          <td className="px-3 py-2"><div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => { setBuf(ex); setEditing(true) }} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted"><Pencil className="h-3 w-3" /></button>
+            <button disabled={isFirst} onClick={onMoveUp} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30"><ArrowUp className="h-3 w-3" /></button>
+            <button disabled={isLast} onClick={onMoveDown} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30"><ArrowDown className="h-3 w-3" /></button>
+            <button onClick={onDelete} className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"><Trash2 className="h-3 w-3" /></button>
+          </div></td>
+        </>
+      )}
+    </tr>
   )
 }
 
@@ -481,13 +890,29 @@ function WorkoutTemplatesTab() {
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>('full-body')
   const [uploadingKey, setUploadingKey] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [localSchedules, setLocalSchedules] = useState<Record<string, ScheduleMap>>({})
+  const [addingDay, setAddingDay] = useState<{ tplId: string; name: string } | null>(null)
+  // bulk selection: key = `${tplId}|${dayName}|${exIdx}`
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const { data: savedPresets = [] } = useQuery({
     queryKey: ['presets', 'exercise'],
     queryFn: () => fetchPresets('exercise'),
   })
 
-  // Build image map: `${templateId}-${exerciseName}` → imageUrl
+  // Get editable schedule for a template: prefer local edits → DB → hardcoded
+  const getSchedule = (tpl: WorkoutTpl): ScheduleMap => {
+    if (localSchedules[tpl.id]) return localSchedules[tpl.id]
+    const dbRow = savedPresets.find(r => r.id === tpl.id)
+    const dbSchedule = (dbRow?.data as any)?.scheduleMap
+    if (dbSchedule && typeof dbSchedule === 'object' && Object.keys(dbSchedule).length > 0) {
+      return dbSchedule as ScheduleMap
+    }
+    return tpl.scheduleMap as unknown as ScheduleMap
+  }
+
+  // Build image map from DB: `${templateId}-${exerciseName}` → imageUrl
   const imageMap: Record<string, string> = {}
   for (const row of savedPresets) {
     for (const ex of ((row.data as any)?.exercises ?? [])) {
@@ -515,10 +940,67 @@ function WorkoutTemplatesTab() {
         image_url: existing?.image_url ?? null,
         data: { ...((existing?.data as object) ?? {}), exercises },
       })
-      qc.invalidateQueries({ queryKey: ['presets', 'exercise'] })
+      await qc.refetchQueries({ queryKey: ['presets', 'exercise'] })
       toast.success(`Image saved for ${exName}`)
     } catch (e) { toast.error((e as Error).message) }
     finally { setUploadingKey(null) }
+  }
+
+  const mutateSchedule = (tpl: WorkoutTpl, fn: (s: ScheduleMap) => ScheduleMap) => {
+    const current = getSchedule(tpl)
+    const next = fn(JSON.parse(JSON.stringify(current)))
+    setLocalSchedules(prev => ({ ...prev, [tpl.id]: next }))
+  }
+
+  const toggleSelect = (key: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  const toggleSelectDay = (tplId: string, dayName: string, exCount: number) => {
+    const keys = Array.from({ length: exCount }, (_, i) => `${tplId}|${dayName}|${i}`)
+    const all = keys.every(k => selected.has(k))
+    setSelected(prev => { const n = new Set(prev); keys.forEach(k => all ? n.delete(k) : n.add(k)); return n })
+  }
+
+  const bulkDeleteFromTpl = (tpl: WorkoutTpl) => {
+    const tplSelected = [...selected].filter(k => k.startsWith(`${tpl.id}|`))
+    if (!tplSelected.length) return
+    const groups: Record<string, number[]> = {}
+    for (const key of tplSelected) {
+      const [, day, idx] = key.split('|')
+      if (!groups[day]) groups[day] = []
+      groups[day].push(Number(idx))
+    }
+    mutateSchedule(tpl, s => {
+      for (const [day, indices] of Object.entries(groups)) {
+        const sorted = [...indices].sort((a, b) => b - a)
+        for (const i of sorted) s[day].splice(i, 1)
+      }
+      return s
+    })
+    setSelected(prev => { const n = new Set(prev); tplSelected.forEach(k => n.delete(k)); return n })
+  }
+
+  const saveSchedule = async (tpl: WorkoutTpl) => {
+    const schedule = getSchedule(tpl)
+    setSavingId(tpl.id)
+    try {
+      const existing = savedPresets.find(r => r.id === tpl.id)
+      const existingExercises = (existing?.data as any)?.exercises ?? []
+      await upsertPreset({
+        id: tpl.id, type: 'exercise',
+        name: tpl.name, name_am: null,
+        description: tpl.description, description_am: null,
+        tags: tpl.tags, tags_am: null,
+        target_goals: tpl.goal === 'fat' ? ['fat'] : tpl.goal === 'muscle' ? ['muscle','strength'] : ['strength'],
+        target_bmi_categories: tpl.goal === 'fat' ? ['overweight','obese'] : ['underweight'],
+        image_url: existing?.image_url ?? null,
+        data: { exercises: existingExercises, scheduleMap: schedule },
+      })
+      await qc.refetchQueries({ queryKey: ['presets', 'exercise'] })
+      setLocalSchedules(prev => { const n = { ...prev }; delete n[tpl.id]; return n })
+      toast.success('Template saved')
+    } catch (e) { toast.error((e as Error).message) }
+    finally { setSavingId(null) }
   }
 
   const filtered = WORKOUT_TEMPLATES.filter(t => {
@@ -526,11 +1008,14 @@ function WorkoutTemplatesTab() {
     if (search) {
       const q = search.toLowerCase()
       const nameMatch = t.name.toLowerCase().includes(q)
-      const exMatch = Object.values(t.scheduleMap).flat().some((ex: TplExercise) => ex.name.toLowerCase().includes(q))
+      const schedule = getSchedule(t)
+      const exMatch = Object.values(schedule).flat().some((ex: TplExercise) => ex.name.toLowerCase().includes(q))
       if (!nameMatch && !exMatch) return false
     }
     return true
   })
+
+  const ipt = 'h-7 text-xs px-1.5 rounded border border-input bg-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
   return (
     <div className="space-y-5 pt-5">
@@ -558,7 +1043,10 @@ function WorkoutTemplatesTab() {
       <div className="space-y-4">
         {filtered.map(tpl => {
           const isExpanded = expandedId === tpl.id
-          const totalExercises = Object.values(tpl.scheduleMap).flat().length
+          const schedule = getSchedule(tpl)
+          const isDirty = !!localSchedules[tpl.id]
+          const isSaving = savingId === tpl.id
+          const totalExercises = Object.values(schedule).flat().length
           const isFat = tpl.goal === 'fat'
           const GoalIcon = isFat ? Flame : Dumbbell
           const goalColor = isFat ? 'text-orange-400' : 'text-blue-400'
@@ -566,70 +1054,164 @@ function WorkoutTemplatesTab() {
 
           return (
             <div key={tpl.id} className="rounded-xl border border-border overflow-hidden">
-              {/* Card header — click to expand */}
-              <button type="button" onClick={() => setExpandedId(isExpanded ? null : tpl.id)}
-                className="w-full flex items-start justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left">
-                <div className="flex items-start gap-3">
+              {/* Card header */}
+              <div className="flex items-start gap-2 px-4 py-3 bg-muted/20">
+                <button type="button" onClick={() => setExpandedId(isExpanded ? null : tpl.id)}
+                  className="flex items-start gap-3 flex-1 text-left">
                   <div className={`flex items-center justify-center w-9 h-9 rounded-lg border ${goalBg} flex-shrink-0 mt-0.5`}>
                     <GoalIcon className={`h-5 w-5 ${goalColor}`} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm">{tpl.name}</span>
-                      {tpl.tags.map(tag => (
-                        <Badge key={tag} variant="default" className="text-[10px] px-1.5 py-0 h-4">{tag}</Badge>
-                      ))}
+                      {tpl.tags.map(tag => <Badge key={tag} variant="default" className="text-[10px] px-1.5 py-0 h-4">{tag}</Badge>)}
+                      {isDirty && <Badge variant="warning" className="text-[10px] px-1.5 py-0 h-4">Unsaved</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{tpl.description}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {Object.keys(tpl.scheduleMap).length} days · {totalExercises} exercises
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{Object.keys(schedule).length} days · {totalExercises} exercises</p>
                   </div>
+                </button>
+                <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+                  {isDirty && (
+                    <button onClick={() => saveSchedule(tpl)} disabled={isSaving}
+                      className="flex items-center gap-1 h-7 px-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50">
+                      {isSaving ? <Spinner size="sm" /> : <Check className="h-3.5 w-3.5" />} Save
+                    </button>
+                  )}
+                  {isDirty && (
+                    <button onClick={() => setLocalSchedules(prev => { const n={...prev}; delete n[tpl.id]; return n })}
+                      className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted" title="Discard changes">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground cursor-pointer" onClick={() => setExpandedId(null)} />
+                    : <ChevronDown className="h-4 w-4 text-muted-foreground cursor-pointer" onClick={() => setExpandedId(tpl.id)} />}
                 </div>
-                {isExpanded
-                  ? <ChevronUp className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-1" />
-                  : <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-1" />}
-              </button>
+              </div>
 
-              {/* Expanded: each day → exercise table with sets/reps/rest */}
+              {/* Expanded days */}
               {isExpanded && (
                 <div className="divide-y divide-border/40">
-                  {Object.entries(tpl.scheduleMap).map(([dayName, exercises]) => (
-                    <div key={dayName}>
-                      <div className="px-4 py-2 bg-muted/10 flex items-center gap-2">
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{dayName}</span>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{(exercises as TplExercise[]).length} exercises</Badge>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead><tr className="border-b border-border/30 bg-muted/5">
-                            <th className="px-3 py-1.5 w-12 text-left text-xs font-medium text-muted-foreground">Image</th>
-                            <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Exercise</th>
-                            <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-14">Sets</th>
-                            <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-16">Reps</th>
-                            <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-14 hidden sm:table-cell">Rest</th>
-                          </tr></thead>
-                          <tbody className="divide-y divide-border/20">
-                            {(exercises as TplExercise[]).map((ex, i) => {
-                              const key = `${tpl.id}-${ex.name}`
-                              return (
-                                <tr key={i} className="hover:bg-muted/20">
-                                  <td className="px-3 py-2">
-                                    <ExThumbnail url={imageMap[key]} uploading={uploadingKey === key}
-                                      title={`Upload image for ${ex.name}`} onUpload={(f) => handleImageUpload(tpl, ex.name, f)} />
-                                  </td>
-                                  <td className="px-3 py-2 font-medium text-sm">{ex.name}</td>
-                                  <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.sets}</td>
-                                  <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums">{ex.reps}</td>
-                                  <td className="px-3 py-2 text-center text-xs text-muted-foreground tabular-nums hidden sm:table-cell">{ex.rest}</td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                  {/* Bulk action bar for this template */}
+                  {[...selected].some(k => k.startsWith(`${tpl.id}|`)) && (
+                    <div className="flex items-center gap-3 px-4 py-2 bg-destructive/10 border-b border-destructive/20">
+                      <span className="text-sm font-medium text-destructive">
+                        {[...selected].filter(k => k.startsWith(`${tpl.id}|`)).length} exercise{[...selected].filter(k => k.startsWith(`${tpl.id}|`)).length > 1 ? 's' : ''} selected
+                      </span>
+                      <button onClick={() => bulkDeleteFromTpl(tpl)}
+                        className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90">
+                        <Trash2 className="h-3.5 w-3.5" /> Delete selected
+                      </button>
+                      <button onClick={() => setSelected(prev => { const n = new Set(prev); [...prev].filter(k => k.startsWith(`${tpl.id}|`)).forEach(k => n.delete(k)); return n })}
+                        className="text-xs text-muted-foreground hover:text-foreground ml-auto">Clear</button>
                     </div>
-                  ))}
+                  )}
+
+                  {Object.entries(schedule).map(([dayName, exercises], dayIdx) => {
+                    const dayCount = Object.keys(schedule).length
+                    const dayKeys = exercises.map((_, i) => `${tpl.id}|${dayName}|${i}`)
+                    const allDaySel = dayKeys.length > 0 && dayKeys.every(k => selected.has(k))
+                    const someDaySel = dayKeys.some(k => selected.has(k))
+                    return (
+                      <div key={dayName}>
+                        {/* Day header */}
+                        <div className="px-4 py-2 bg-muted/10 flex items-center gap-2">
+                          {exercises.length > 0 && (
+                            <input type="checkbox" checked={allDaySel}
+                              ref={el => { if (el) el.indeterminate = someDaySel && !allDaySel }}
+                              onChange={() => toggleSelectDay(tpl.id, dayName, exercises.length)}
+                              className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+                          )}
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{dayName}</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{exercises.length} exercises</Badge>
+                          <div className="ml-auto flex items-center gap-1">
+                            {dayCount > 1 && (
+                              <button onClick={() => mutateSchedule(tpl, s => { const n={...s}; delete n[dayName]; return n })}
+                                className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Delete day">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Exercise rows */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead><tr className="border-b border-border/30 bg-muted/5">
+                              <th className="px-3 py-1.5 w-8"></th>
+                              <th className="px-3 py-1.5 w-12 text-left text-xs font-medium text-muted-foreground">Img</th>
+                              <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Exercise</th>
+                              <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-14">Sets</th>
+                              <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-16">Reps</th>
+                              <th className="px-3 py-1.5 text-center text-xs font-medium text-muted-foreground w-14 hidden sm:table-cell">Rest</th>
+                              <th className="px-3 py-1.5 w-20"></th>
+                            </tr></thead>
+                            <tbody className="divide-y divide-border/20">
+                              {exercises.map((ex, exIdx) => {
+                                const imgKey = `${tpl.id}-${ex.name}`
+                                const selKey = `${tpl.id}|${dayName}|${exIdx}`
+                                return (
+                                  <ExerciseRowSelectable
+                                    key={exIdx}
+                                    ex={ex}
+                                    imgUrl={ex.imageUrl ?? imageMap[imgKey]}
+                                    uploading={uploadingKey === imgKey}
+                                    selected={selected.has(selKey)}
+                                    onToggleSelect={() => toggleSelect(selKey)}
+                                    isFirst={exIdx === 0}
+                                    isLast={exIdx === exercises.length - 1}
+                                    onUploadImage={f => handleImageUpload(tpl, ex.name, f)}
+                                    onSave={updated => mutateSchedule(tpl, s => { s[dayName][exIdx] = updated; return s })}
+                                    onDelete={() => mutateSchedule(tpl, s => { s[dayName] = s[dayName].filter((_,i) => i !== exIdx); return s })}
+                                    onMoveUp={() => mutateSchedule(tpl, s => { const a=[...s[dayName]]; [a[exIdx-1],a[exIdx]]=[a[exIdx],a[exIdx-1]]; s[dayName]=a; return s })}
+                                    onMoveDown={() => mutateSchedule(tpl, s => { const a=[...s[dayName]]; [a[exIdx],a[exIdx+1]]=[a[exIdx+1],a[exIdx]]; s[dayName]=a; return s })}
+                                  />
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Add exercise */}
+                        <div className="px-4 py-2 border-t border-border/20">
+                          <button onClick={() => mutateSchedule(tpl, s => {
+                            s[dayName] = [...s[dayName], { name: 'New Exercise', sets: '3', reps: '10', rest: '60s' }]; return s
+                          })} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5">
+                            <Plus className="h-3.5 w-3.5" /> Add exercise to {dayName}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Add day */}
+                  <div className="px-4 py-3 bg-muted/5">
+                    {addingDay?.tplId === tpl.id ? (
+                      <div className="flex items-center gap-2">
+                        <input autoFocus placeholder="Day name (e.g. Day D)" value={addingDay.name}
+                          onChange={e => setAddingDay({ tplId: tpl.id, name: e.target.value })}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const n = addingDay.name.trim()
+                              if (n) mutateSchedule(tpl, s => { s[n] = []; return s })
+                              setAddingDay(null)
+                            } else if (e.key === 'Escape') setAddingDay(null)
+                          }}
+                          className={`${ipt} w-48`} />
+                        <button onClick={() => {
+                          const n = addingDay.name.trim()
+                          if (n) mutateSchedule(tpl, s => { s[n] = []; return s })
+                          setAddingDay(null)
+                        }} className="h-7 w-7 flex items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => setAddingDay(null)} className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setAddingDay({ tplId: tpl.id, name: '' })}
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        <Plus className="h-3.5 w-3.5" /> Add day
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

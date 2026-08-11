@@ -32,13 +32,14 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   })
 }
 
-/** Format a USD amount. */
-export function formatCurrency(cents: number | null | undefined): string {
-  if (cents == null) return '—'
-  return new Intl.NumberFormat('en-US', {
+/** Format an ETB (Ethiopian Birr) amount. */
+export function formatCurrency(amount: number | null | undefined): string {
+  if (amount == null) return '—'
+  return new Intl.NumberFormat('en-ET', {
     style: 'currency',
-    currency: 'USD',
-  }).format(cents)
+    currency: 'ETB',
+    maximumFractionDigits: 2,
+  }).format(amount)
 }
 
 /** Truncate a string to `max` characters. */

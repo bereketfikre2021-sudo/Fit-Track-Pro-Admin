@@ -157,6 +157,76 @@ function FoodRow({ food, index, onSave, onDelete, onImageUpload }: FoodRowProps)
   )
 }
 
+// ── Selectable food row (with checkbox) ──────────────────────────────────────
+type FoodRowSelectableProps = FoodRowProps & { selected: boolean; onToggleSelect: () => void }
+
+function FoodRowSelectable({ food, index, selected, onToggleSelect, onSave, onDelete, onImageUpload }: FoodRowSelectableProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ ...food })
+  const [uploading, setUploading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleImageUpload = async (file: File) => {
+    setUploading(true)
+    try { const url = await onImageUpload(file); setDraft(d => ({ ...d, imageUrl: url })) }
+    catch (e) { toast.error((e as Error).message) }
+    finally { setUploading(false) }
+  }
+
+  if (editing) {
+    return (
+      <tr className="bg-primary/5">
+        <td className="px-3 py-2 w-8"></td>
+        <td className="px-3 py-2">
+          <RowThumbnail url={draft.imageUrl} onUpload={handleImageUpload} uploading={uploading} />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2 hidden sm:table-cell">
+          <input value={draft.name_am} onChange={e => setDraft(d => ({ ...d, name_am: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-2 py-2 w-20"><input type="number" value={draft.calories} onChange={e => setDraft(d => ({ ...d, calories: +e.target.value }))} className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" /></td>
+        <td className="px-2 py-2 w-16 hidden md:table-cell"><input type="number" value={draft.protein} onChange={e => setDraft(d => ({ ...d, protein: +e.target.value }))} className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" /></td>
+        <td className="px-2 py-2 w-16 hidden md:table-cell"><input type="number" value={draft.carbs} onChange={e => setDraft(d => ({ ...d, carbs: +e.target.value }))} className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" /></td>
+        <td className="px-2 py-2 w-16 hidden md:table-cell"><input type="number" value={draft.fat} onChange={e => setDraft(d => ({ ...d, fat: +e.target.value }))} className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm text-right focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" /></td>
+        <td className="px-3 py-2">
+          <div className="flex gap-1">
+            <button onClick={() => { onSave(draft); setEditing(false) }} className="flex h-7 w-7 items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setEditing(false)} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className={`hover:bg-muted/20 group ${selected ? 'bg-primary/5' : ''}`}>
+      <td className="px-3 py-2 w-8">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+      </td>
+      <td className="px-3 py-2">
+        <RowThumbnail url={food.imageUrl} onUpload={async (f) => { const url = await onImageUpload(f); onSave({ ...food, imageUrl: url }) }} uploading={uploading} />
+      </td>
+      <td className="px-3 py-2 font-medium text-sm">{food.name}</td>
+      <td className="px-3 py-2 text-sm text-muted-foreground hidden sm:table-cell">{food.name_am}</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums">{food.calories}</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground hidden md:table-cell">{food.protein}g</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground hidden md:table-cell">{food.carbs}g</td>
+      <td className="px-3 py-2 text-sm text-right tabular-nums text-muted-foreground hidden md:table-cell">{food.fat}g</td>
+      <td className="px-3 py-2">
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => { setDraft({ ...food }); setEditing(true) }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setConfirmDelete(true)} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+        <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => { onDelete(); setConfirmDelete(false) }} title="Delete food" message={`Delete "${food.name}"?`} confirmLabel="Delete" loading={false} />
+      </td>
+    </tr>
+  )
+}
+
 // ── Inline editable shopping item row ────────────────────────────────────────
 type ShopRowProps = {
   item: ShoppingItem & { imageUrl?: string }
@@ -235,12 +305,77 @@ function ShopRow({ item, onSave, onDelete, onImageUpload }: ShopRowProps) {
   )
 }
 
+// ── Selectable shopping item row ─────────────────────────────────────────────
+type ShopRowSelectableProps = ShopRowProps & { selected: boolean; onToggleSelect: () => void }
+
+function ShopRowSelectable({ item, selected, onToggleSelect, onSave, onDelete, onImageUpload }: ShopRowSelectableProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({ ...item })
+  const [uploading, setUploading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleImageUpload = async (file: File) => {
+    setUploading(true)
+    try { const url = await onImageUpload(file); setDraft(d => ({ ...d, imageUrl: url })) }
+    catch (e) { toast.error((e as Error).message) }
+    finally { setUploading(false) }
+  }
+
+  if (editing) {
+    return (
+      <tr className="bg-primary/5">
+        <td className="px-3 py-2 w-8"></td>
+        <td className="px-3 py-2">
+          <RowThumbnail url={draft.imageUrl} onUpload={handleImageUpload} uploading={uploading} />
+        </td>
+        <td className="px-3 py-2">
+          <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2 hidden sm:table-cell">
+          <input value={draft.name_am} onChange={e => setDraft(d => ({ ...d, name_am: e.target.value }))}
+            className="flex h-8 w-full rounded border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex gap-1">
+            <button onClick={() => { onSave(draft); setEditing(false) }} className="flex h-7 w-7 items-center justify-center rounded text-emerald-400 hover:bg-emerald-500/10"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setEditing(false)} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className={`hover:bg-muted/20 group ${selected ? 'bg-primary/5' : ''}`}>
+      <td className="px-3 py-2 w-8">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+      </td>
+      <td className="px-3 py-2">
+        <RowThumbnail url={item.imageUrl} onUpload={async (f) => { const url = await onImageUpload(f); onSave({ ...item, imageUrl: url }) }} uploading={uploading} />
+      </td>
+      <td className="px-3 py-2 font-medium text-sm">{item.name}</td>
+      <td className="px-3 py-2 text-sm text-muted-foreground hidden sm:table-cell">{item.name_am}</td>
+      <td className="px-3 py-2">
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => { setDraft({ ...item }); setEditing(true) }} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setConfirmDelete(true)} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+        <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => { onDelete(); setConfirmDelete(false) }} title="Delete item" message={`Delete "${item.name}"?`} confirmLabel="Delete" loading={false} />
+      </td>
+    </tr>
+  )
+}
+
 // ── Meal Plans Tab ─────────────────────────────────────────────────────────────
 function MealPlansTab() {
   const qc = useQueryClient()
   const [weightFilter, setWeightFilter] = useState<WeightCategory>('weight-gain')
-  const [expandedDay, setExpandedDay] = useState<string | null>('Monday')
+  const [activeDay, setActiveDay] = useState<string>(DAYS_ORDER[0])
   const [saving, setSaving] = useState(false)
+  // bulk selection: key = `${day}-${slot}-${index}`
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const { data: dbRows = [], isLoading } = useQuery({
     queryKey: ['presets', 'meal'],
@@ -265,7 +400,7 @@ function MealPlansTab() {
         image_url: dbRow?.image_url ?? null,
         data: { days: newDays },
       })
-      qc.invalidateQueries({ queryKey: ['presets', 'meal'] })
+      await qc.refetchQueries({ queryKey: ['presets', 'meal'] })
 
       // ── Auto-sync new foods into matching shopping list ───────────────────
       // Collect all food names from the updated meal plan
@@ -327,7 +462,7 @@ function MealPlansTab() {
           image_url: shopRow?.image_url ?? null,
           data: { categories: newCats },
         })
-        qc.invalidateQueries({ queryKey: ['presets', 'shopping'] })
+        await qc.refetchQueries({ queryKey: ['presets', 'shopping'] })
         toast.success(`Saved · Added ${added} new item${added > 1 ? 's' : ''} to shopping list`)
       } else {
         toast.success('Saved')
@@ -367,17 +502,55 @@ function MealPlansTab() {
     return url
   }
 
+  const handleBulkDelete = async () => {
+    if (!selected.size) return
+    setBulkDeleting(true)
+    try {
+      const days = getDays()
+      const newDays: MealPlanDays = JSON.parse(JSON.stringify(days))
+      // Group selected keys by day+slot, delete in reverse index order
+      const groups: Record<string, number[]> = {}
+      for (const key of selected) {
+        const [day, slot, idx] = key.split('|')
+        const k = `${day}|${slot}`
+        if (!groups[k]) groups[k] = []
+        groups[k].push(Number(idx))
+      }
+      for (const [k, indices] of Object.entries(groups)) {
+        const [day, slot] = k.split('|')
+        const sorted = [...indices].sort((a, b) => b - a)
+        for (const i of sorted) {
+          ;(newDays[day] as any)[slot].splice(i, 1)
+        }
+      }
+      await saveBack(newDays)
+      setSelected(new Set())
+    } finally { setBulkDeleting(false) }
+  }
+
+  const toggleSelect = (key: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  const toggleSelectAll = (slotKeys: string[]) => {
+    const allSelected = slotKeys.every(k => selected.has(k))
+    setSelected(prev => {
+      const n = new Set(prev)
+      slotKeys.forEach(k => allSelected ? n.delete(k) : n.add(k))
+      return n
+    })
+  }
+
   const opt = WEIGHT_OPTIONS.find(o => o.id === weightFilter)!
   const CatIcon = opt.icon
 
   return (
     <div className="space-y-5 pt-5">
-      {/* Weight filter tabs */}
+      {/* Weight filter */}
       <div className="flex items-center gap-2 p-1 bg-muted/30 rounded-lg w-fit">
         {WEIGHT_OPTIONS.map(o => {
           const Icon = o.icon
           return (
-            <button key={o.id} onClick={() => setWeightFilter(o.id)}
+            <button key={o.id} onClick={() => { setWeightFilter(o.id); setSelected(new Set()) }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${weightFilter === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
               <Icon className={`h-4 w-4 ${o.color}`} />
               {o.label}
@@ -387,7 +560,7 @@ function MealPlansTab() {
         {saving && <Spinner size="sm" className="ml-2" />}
       </div>
 
-      {/* Category header with icon */}
+      {/* Plan header */}
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${opt.bg}`}>
         <CatIcon className={`h-6 w-6 ${opt.color}`} />
         <div>
@@ -396,72 +569,102 @@ function MealPlansTab() {
         </div>
       </div>
 
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <div className="space-y-3">
-          {DAYS_ORDER.map(day => {
-            const slots = getDays()[day] ?? {}
-            const totalFoods = Object.values(slots).flat().length
-            const totalCals = Object.values(slots).flat().reduce((s, f: any) => s + (f.calories ?? 0), 0)
-            const isExpanded = expandedDay === day
-            return (
-              <div key={day} className="rounded-lg border border-border overflow-hidden">
-                <button type="button" onClick={() => setExpandedDay(isExpanded ? null : day)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-sm">{day}</span>
-                    <Badge variant="default" className="text-[10px]">{totalFoods} foods</Badge>
-                    <span className="text-xs text-muted-foreground">{totalCals} kcal</span>
-                  </div>
-                  {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                </button>
-                {isExpanded && (
-                  <div className="divide-y divide-border/40">
-                    {Object.entries(SLOT_LABELS).map(([slotId, slotLabel]) => {
-                      const foods: (FoodItem & { imageUrl?: string })[] = (slots as any)[slotId] ?? []
-                      return (
-                        <div key={slotId} className="px-0">
-                          <div className="flex items-center justify-between px-4 py-2 bg-muted/10">
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{slotLabel}</span>
-                            <PermissionGate permission="nutrition.delete">
-                              <button onClick={() => handleFoodAdd(day, slotId)}
-                                className="flex items-center gap-1 text-xs text-primary hover:underline">
-                                <Plus className="h-3 w-3" />Add
-                              </button>
-                            </PermissionGate>
-                          </div>
-                          {foods.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
-                                <thead><tr className="border-b border-border/40 bg-muted/5">
-                                  <th className="px-3 py-1.5 w-12"></th>
-                                  <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
-                                  <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
-                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-20">kcal</th>
-                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Prot</th>
-                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Carb</th>
-                                  <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Fat</th>
-                                  <th className="px-3 py-1.5 w-20"></th>
-                                </tr></thead>
-                                <tbody className="divide-y divide-border/30">
-                                  {foods.map((food, i) => (
-                                    <FoodRow key={i} food={food} index={i}
-                                      onSave={(updated) => handleFoodSave(day, slotId, i, updated)}
-                                      onDelete={() => handleFoodDelete(day, slotId, i)}
-                                      onImageUpload={(f) => handleFoodImageUpload(day, slotId, i, f)} />
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5">
+          <span className="text-sm font-medium text-destructive">{selected.size} item{selected.size > 1 ? 's' : ''} selected</span>
+          <button onClick={handleBulkDelete} disabled={bulkDeleting}
+            className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 disabled:opacity-50">
+            {bulkDeleting ? <Spinner size="sm" /> : <Trash2 className="h-3.5 w-3.5" />} Delete selected
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-auto">
+            Clear selection
+          </button>
         </div>
+      )}
+
+      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
+        <>
+          {/* Horizontal day tabs */}
+          <div className="flex gap-1 overflow-x-auto pb-0.5 border-b border-border" role="tablist">
+            {DAYS_ORDER.map(day => {
+              const slots = getDays()[day] ?? {}
+              const totalCals = Object.values(slots).flat().reduce((s, f: any) => s + (f.calories ?? 0), 0)
+              return (
+                <button key={day} role="tab" aria-selected={activeDay === day}
+                  onClick={() => setActiveDay(day)}
+                  className={`flex flex-col items-center px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${activeDay === day ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}>
+                  {day.slice(0, 3)}
+                  <span className="text-[10px] tabular-nums opacity-70">{totalCals > 0 ? `${totalCals}cal` : '—'}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Active day slots */}
+          <div className="space-y-3">
+            {Object.entries(SLOT_LABELS).map(([slotId, slotLabel]) => {
+              const foods: (FoodItem & { imageUrl?: string })[] = (getDays()[activeDay] as any)?.[slotId] ?? []
+              const slotKeys = foods.map((_, i) => `${activeDay}|${slotId}|${i}`)
+              const allSlotSelected = slotKeys.length > 0 && slotKeys.every(k => selected.has(k))
+              const someSlotSelected = slotKeys.some(k => selected.has(k))
+              return (
+                <div key={slotId} className="rounded-lg border border-border overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 bg-muted/10">
+                    <div className="flex items-center gap-2">
+                      {foods.length > 0 && (
+                        <input type="checkbox" checked={allSlotSelected} ref={el => { if (el) el.indeterminate = someSlotSelected && !allSlotSelected }}
+                          onChange={() => toggleSelectAll(slotKeys)}
+                          className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+                      )}
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{slotLabel}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{foods.length}</Badge>
+                    </div>
+                    <PermissionGate permission="nutrition.delete">
+                      <button onClick={() => handleFoodAdd(activeDay, slotId)}
+                        className="flex items-center gap-1 text-xs text-primary hover:underline">
+                        <Plus className="h-3 w-3" />Add
+                      </button>
+                    </PermissionGate>
+                  </div>
+                  {foods.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="border-b border-border/40 bg-muted/5">
+                          <th className="px-3 py-1.5 w-8"></th>
+                          <th className="px-3 py-1.5 w-12"></th>
+                          <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
+                          <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
+                          <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-20">kcal</th>
+                          <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Prot</th>
+                          <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Carb</th>
+                          <th className="px-3 py-1.5 text-right text-xs font-medium text-muted-foreground w-16 hidden md:table-cell">Fat</th>
+                          <th className="px-3 py-1.5 w-20"></th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-border/30">
+                          {foods.map((food, i) => {
+                            const key = `${activeDay}|${slotId}|${i}`
+                            return (
+                              <FoodRowSelectable key={i} food={food} index={i}
+                                selected={selected.has(key)}
+                                onToggleSelect={() => toggleSelect(key)}
+                                onSave={(updated) => handleFoodSave(activeDay, slotId, i, updated)}
+                                onDelete={() => handleFoodDelete(activeDay, slotId, i)}
+                                onImageUpload={(f) => handleFoodImageUpload(activeDay, slotId, i, f)} />
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {foods.length === 0 && (
+                    <div className="px-4 py-3 text-xs text-muted-foreground italic">No foods — click Add</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
@@ -472,6 +675,9 @@ function ShoppingListsTab() {
   const qc = useQueryClient()
   const [weightFilter, setWeightFilter] = useState<WeightCategory>('weight-gain')
   const [saving, setSaving] = useState(false)
+  const [activeCat, setActiveCat] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const { data: dbRows = [], isLoading } = useQuery({
     queryKey: ['presets', 'shopping'],
@@ -495,7 +701,7 @@ function ShoppingListsTab() {
         image_url: dbRow?.image_url ?? null,
         data: { categories: newCats },
       })
-      qc.invalidateQueries({ queryKey: ['presets', 'shopping'] })
+      await qc.refetchQueries({ queryKey: ['presets', 'shopping'] })
       toast.success('Saved')
     } catch (e) { toast.error((e as Error).message) }
     finally { setSaving(false) }
@@ -532,9 +738,44 @@ function ShoppingListsTab() {
     return url
   }
 
+  const handleBulkDeleteShop = async () => {
+    if (!selected.size) return
+    setBulkDeleting(true)
+    try {
+      const cats = getCategories()
+      const newCats: ShoppingCategories = JSON.parse(JSON.stringify(cats))
+      const groups: Record<string, number[]> = {}
+      for (const key of selected) {
+        const [cat, idx] = key.split('|')
+        if (!groups[cat]) groups[cat] = []
+        groups[cat].push(Number(idx))
+      }
+      for (const [cat, indices] of Object.entries(groups)) {
+        const sorted = [...indices].sort((a, b) => b - a)
+        for (const i of sorted) newCats[cat].splice(i, 1)
+      }
+      await saveBack(newCats)
+      setSelected(new Set())
+    } finally { setBulkDeleting(false) }
+  }
+
+  const toggleSelectShop = (key: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  const toggleSelectAllShop = (catKeys: string[]) => {
+    const allSel = catKeys.every(k => selected.has(k))
+    setSelected(prev => {
+      const n = new Set(prev)
+      catKeys.forEach(k => allSel ? n.delete(k) : n.add(k))
+      return n
+    })
+  }
+
   const opt = WEIGHT_OPTIONS.find(o => o.id === weightFilter)!
   const CatIcon = opt.icon
   const categories = getCategories()
+  const catNames = Object.keys(categories)
+  const currentCat = activeCat ?? catNames[0] ?? ''
   const totalItems = Object.values(categories).flat().length
 
   return (
@@ -544,7 +785,7 @@ function ShoppingListsTab() {
         {WEIGHT_OPTIONS.map(o => {
           const Icon = o.icon
           return (
-            <button key={o.id} onClick={() => setWeightFilter(o.id)}
+            <button key={o.id} onClick={() => { setWeightFilter(o.id); setSelected(new Set()); setActiveCat(null) }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${weightFilter === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
               <Icon className={`h-4 w-4 ${o.color}`} />
               {o.label}
@@ -554,52 +795,102 @@ function ShoppingListsTab() {
         {saving && <Spinner size="sm" className="ml-2" />}
       </div>
 
-      {/* Category header icon */}
+      {/* Header */}
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${opt.bg}`}>
         <CatIcon className={`h-6 w-6 ${opt.color}`} />
         <div>
           <p className="font-semibold text-sm">{weightFilter === 'weight-gain' ? 'Weight Gain Shopping List' : 'Weight Loss Shopping List'}</p>
-          <p className="text-xs text-muted-foreground">{totalItems} items across {Object.keys(categories).length} categories</p>
+          <p className="text-xs text-muted-foreground">{totalItems} items across {catNames.length} categories</p>
         </div>
       </div>
 
-      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
-        <div className="space-y-3">
-          {Object.entries(categories).map(([cat, items]) => (
-            <div key={cat} className="rounded-lg border border-border overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm">{cat}</span>
-                  <Badge variant="default" className="text-[10px]">{(items as ShoppingItem[]).length}</Badge>
-                </div>
-                <PermissionGate permission="nutrition.delete">
-                  <button onClick={() => handleItemAdd(cat)}
-                    className="flex items-center gap-1 text-xs text-primary hover:underline">
-                    <Plus className="h-3 w-3" />Add item
-                  </button>
-                </PermissionGate>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-border/40 bg-muted/5">
-                    <th className="px-3 py-1.5 w-12"></th>
-                    <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
-                    <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
-                    <th className="px-3 py-1.5 w-20"></th>
-                  </tr></thead>
-                  <tbody className="divide-y divide-border/30">
-                    {(items as (ShoppingItem & { imageUrl?: string })[]).map((item, i) => (
-                      <ShopRow key={i} item={item}
-                        onSave={(updated) => handleItemSave(cat, i, updated)}
-                        onDelete={() => handleItemDelete(cat, i)}
-                        onImageUpload={(f) => handleItemImageUpload(cat, i, f)} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5">
+          <span className="text-sm font-medium text-destructive">{selected.size} item{selected.size > 1 ? 's' : ''} selected</span>
+          <button onClick={handleBulkDeleteShop} disabled={bulkDeleting}
+            className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 disabled:opacity-50">
+            {bulkDeleting ? <Spinner size="sm" /> : <Trash2 className="h-3.5 w-3.5" />} Delete selected
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-auto">
+            Clear selection
+          </button>
         </div>
+      )}
+
+      {isLoading ? <div className="flex justify-center py-12"><Spinner size="lg" /></div> : (
+        <>
+          {/* Horizontal category pills */}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 border-b border-border">
+            {catNames.map(cat => {
+              const count = (categories[cat] as ShoppingItem[]).length
+              return (
+                <button key={cat} onClick={() => setActiveCat(cat)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${currentCat === cat ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'}`}>
+                  {cat}
+                  <span className="text-[10px] tabular-nums opacity-70 ml-0.5">{count}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Active category items */}
+          {currentCat && (() => {
+            const items = (categories[currentCat] ?? []) as (ShoppingItem & { imageUrl?: string })[]
+            const catKeys = items.map((_, i) => `${currentCat}|${i}`)
+            const allCatSel = catKeys.length > 0 && catKeys.every(k => selected.has(k))
+            const someCatSel = catKeys.some(k => selected.has(k))
+            return (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    {items.length > 0 && (
+                      <input type="checkbox" checked={allCatSel}
+                        ref={el => { if (el) el.indeterminate = someCatSel && !allCatSel }}
+                        onChange={() => toggleSelectAllShop(catKeys)}
+                        className="w-3.5 h-3.5 rounded border-border cursor-pointer" />
+                    )}
+                    <span className="font-semibold text-sm">{currentCat}</span>
+                    <Badge variant="default" className="text-[10px]">{items.length}</Badge>
+                  </div>
+                  <PermissionGate permission="nutrition.delete">
+                    <button onClick={() => handleItemAdd(currentCat)}
+                      className="flex items-center gap-1 text-xs text-primary hover:underline">
+                      <Plus className="h-3 w-3" />Add item
+                    </button>
+                  </PermissionGate>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border/40 bg-muted/5">
+                      <th className="px-3 py-1.5 w-8"></th>
+                      <th className="px-3 py-1.5 w-12"></th>
+                      <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground">Name (EN)</th>
+                      <th className="px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">Name (AM)</th>
+                      <th className="px-3 py-1.5 w-20"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-border/30">
+                      {items.map((item, i) => {
+                        const key = `${currentCat}|${i}`
+                        return (
+                          <ShopRowSelectable key={i} item={item}
+                            selected={selected.has(key)}
+                            onToggleSelect={() => toggleSelectShop(key)}
+                            onSave={(updated) => handleItemSave(currentCat, i, updated)}
+                            onDelete={() => handleItemDelete(currentCat, i)}
+                            onImageUpload={(f) => handleItemImageUpload(currentCat, i, f)} />
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {items.length === 0 && (
+                  <div className="px-4 py-3 text-xs text-muted-foreground italic">No items — click Add item</div>
+                )}
+              </div>
+            )
+          })()}
+        </>
       )}
     </div>
   )

@@ -22,15 +22,12 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { UsersPage } from '@/pages/UsersPage'
 import { UserDetailPage } from '@/pages/UserDetailPage'
 import { SubscriptionsPage } from '@/pages/SubscriptionsPage'
-import { PaymentsPage } from '@/pages/PaymentsPage'
 import { WorkoutsPage } from '@/pages/WorkoutsPage'
 import { NutritionPage } from '@/pages/NutritionPage'
 import { ExercisesPage } from '@/pages/ExercisesPage'
 import { AiUsagePage } from '@/pages/AiUsagePage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
-import { ReportsPage } from '@/pages/ReportsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
-import { RolesPage } from '@/pages/RolesPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 
@@ -47,7 +44,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             {/* Global toast notifications */}
             <Toaster
@@ -72,15 +69,12 @@ export default function App() {
                     <Route path="/users"         element={<UsersPage />} />
                     <Route path="/users/:userId" element={<UserDetailPage />} />
                     <Route path="/subscriptions" element={<SubscriptionsPage />} />
-                    <Route path="/payments"      element={<PaymentsPage />} />
                     <Route path="/workouts"      element={<WorkoutsPage />} />
                     <Route path="/nutrition"     element={<NutritionPage />} />
                     <Route path="/exercises"     element={<ExercisesPage />} />
                     <Route path="/ai-usage"      element={<AiUsagePage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="/reports"       element={<ReportsPage />} />
                     <Route path="/settings"      element={<SettingsPage />} />
-                    <Route path="/roles"         element={<RolesPage />} />
                     <Route path="/profile"       element={<ProfilePage />} />
                   </Route>
                 </Route>
