@@ -389,6 +389,20 @@ function MealPlansTab() {
   const saveBack = async (newDays: MealPlanDays) => {
     setSaving(true)
     try {
+      // Deduplicate foods in each slot before saving to prevent accumulation
+      const dedupedDays: MealPlanDays = {}
+      for (const [day, slots] of Object.entries(newDays)) {
+        dedupedDays[day] = {}
+        for (const [slot, foods] of Object.entries(slots as Record<string, any[]>)) {
+          const seen = new Set<string>()
+          dedupedDays[day][slot] = (foods || []).filter((food: any) => {
+            const key = `${String(food.name || '').toLowerCase().trim()}|${food.calories ?? ''}`
+            if (seen.has(key)) return false
+            seen.add(key)
+            return true
+          })
+        }
+      }
       await upsertPreset({
         id: weightFilter, type: 'meal',
         name: dbRow?.name ?? (weightFilter === 'weight-gain' ? 'Weight Gain Plan' : 'Weight Loss Plan'),
@@ -398,14 +412,14 @@ function MealPlansTab() {
         target_goals: weightFilter === 'weight-gain' ? ['muscle','strength'] : ['fat'],
         target_bmi_categories: weightFilter === 'weight-gain' ? ['underweight'] : ['overweight','obese'],
         image_url: dbRow?.image_url ?? null,
-        data: { days: newDays },
+        data: { days: dedupedDays },
       })
       await qc.refetchQueries({ queryKey: ['presets', 'meal'] })
 
       // ── Auto-sync new foods into matching shopping list ───────────────────
       // Collect all food names from the updated meal plan
       const allFoodNames = new Set<string>()
-      for (const day of Object.values(newDays)) {
+      for (const day of Object.values(dedupedDays)) {
         for (const slot of Object.values(day)) {
           for (const food of slot) {
             if (food.name) allFoodNames.add(food.name.toLowerCase().trim())
@@ -432,7 +446,7 @@ function MealPlansTab() {
         if (!existingNames.has(foodName)) {
           // Find the matching food item for its amharic name
           let amName = ''
-          outer: for (const day of Object.values(newDays)) {
+          outer: for (const day of Object.values(dedupedDays)) {
             for (const slot of Object.values(day)) {
               for (const food of slot) {
                 if (food.name?.toLowerCase().trim() === foodName) {
