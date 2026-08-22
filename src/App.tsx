@@ -27,6 +27,9 @@ import { NutritionPage } from '@/pages/NutritionPage'
 import { ExercisesPage } from '@/pages/ExercisesPage'
 import { AiUsagePage } from '@/pages/AiUsagePage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
+import { PaymentVerificationPage } from '@/pages/PaymentVerificationPage'
+import { PaymentReviewPage } from '@/pages/PaymentReviewPage'
+import { ReportsPage } from '@/pages/ReportsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
@@ -74,6 +77,9 @@ export default function App() {
                     <Route path="/exercises"     element={<ExercisesPage />} />
                     <Route path="/ai-usage"      element={<AiUsagePage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
+                    <Route path="/payments"      element={<PaymentVerificationPage />} />
+                    <Route path="/payments/review/:id" element={<PaymentReviewPage />} />
+                    <Route path="/reports"       element={<ReportsPage />} />
                     <Route path="/settings"      element={<SettingsPage />} />
                     <Route path="/profile"       element={<ProfilePage />} />
                   </Route>

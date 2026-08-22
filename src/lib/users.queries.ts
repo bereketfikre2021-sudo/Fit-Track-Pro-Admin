@@ -377,6 +377,48 @@ export async function fetchUserPayments(userId: string): Promise<UserPayment[]> 
   })) as UserPayment[]
 }
 
+export interface UserPaymentSubmission {
+  id: string
+  plan_name: string | null
+  plan_tier: string | null
+  method_name: string | null
+  amount_etb: number
+  transaction_ref: string | null
+  status: string
+  submitted_at: string
+  verified_at: string | null
+  rejection_reason: string | null
+  proof_path: string | null
+}
+
+export async function fetchUserPaymentSubmissions(userId: string): Promise<UserPaymentSubmission[]> {
+  const { data, error } = await supabase
+    .from('payment_submissions')
+    .select(`
+      id, amount_etb, transaction_ref, status, submitted_at, verified_at,
+      rejection_reason, proof_path,
+      plan:subscription_plans(name, tier),
+      method:app_payment_methods(name)
+    `)
+    .eq('user_id', userId)
+    .order('submitted_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    plan_name: (r.plan as any)?.name ?? null,
+    plan_tier: (r.plan as any)?.tier ?? null,
+    method_name: (r.method as any)?.name ?? null,
+    amount_etb: Number(r.amount_etb),
+    transaction_ref: r.transaction_ref,
+    status: r.status,
+    submitted_at: r.submitted_at,
+    verified_at: r.verified_at,
+    rejection_reason: r.rejection_reason,
+    proof_path: r.proof_path,
+  }))
+}
+
 export async function fetchUserAuditLogs(userId: string): Promise<UserAuditLog[]> {
   const { data, error } = await supabase
     .from('audit_logs')

@@ -66,35 +66,34 @@ async function fetchAdminProfile(userId: string) {
 // ── Avatar upload ─────────────────────────────────────────────────────────────
 
 async function uploadAvatar(userId: string, file: File): Promise<string> {
-  // Validate
   if (!file.type.startsWith('image/')) throw new Error('File must be an image')
   if (file.size > 5 * 1024 * 1024) throw new Error('Image must be smaller than 5 MB')
 
   const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+  // Path must start with userId so the storage RLS path check passes
   const path = `${userId}/avatar.${ext}`
 
-  // Try avatars bucket first (main app bucket, public read)
+  // Delete old file first to avoid needing UPDATE policy
+  await supabase.storage.from('avatars').remove([path])
+
   const { error: uploadErr } = await supabase.storage
     .from('avatars')
-    .upload(path, file, { upsert: true, contentType: file.type })
+    .upload(path, file, { upsert: false, contentType: file.type })
 
   if (uploadErr) {
-    // Bucket may not allow admin uploads — store URL as data URL fallback
-    // so the UI still works even without storage access
-    throw new Error(`Upload failed: ${uploadErr.message}. Make sure the "avatars" bucket exists in Supabase Storage and has an INSERT policy for authenticated users.`)
+    throw new Error(
+      uploadErr.message.includes('row-level security') || uploadErr.message.includes('policy')
+        ? 'Storage permission denied. Run the avatars bucket SQL migration in Supabase SQL Editor.'
+        : `Upload failed: ${uploadErr.message}`
+    )
   }
 
   const { data } = supabase.storage.from('avatars').getPublicUrl(path)
-  // Bust cache with timestamp
   const publicUrl = `${data.publicUrl}?t=${Date.now()}`
 
-  // Save to public.users — upsert in case the admin has no profile row yet
   const { error: updateErr } = await supabase
     .from('users')
-    .upsert(
-      { id: userId, avatar_url: publicUrl },
-      { onConflict: 'id' },
-    )
+    .upsert({ id: userId, avatar_url: publicUrl }, { onConflict: 'id' })
   if (updateErr) throw new Error(`Profile update failed: ${updateErr.message}`)
 
   return publicUrl

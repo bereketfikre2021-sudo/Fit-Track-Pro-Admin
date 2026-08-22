@@ -1,276 +1,346 @@
 /**
  * DashboardPage.tsx
- *
- * Single scrollable analytics page.
- * Stats → Revenue → Growth → Recent Activity.
+ * Layout matches screenshot exactly:
+ *   Row 1: 4 flat stat cards (label top, huge value, trend below — no icons)
+ *   Row 2: Sales Overview (donut LEFT + breakdown RIGHT) | Two metric cards + area chart
  */
 
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import {
-  LayoutDashboard, RefreshCw, AlertCircle,
-  DollarSign, TrendingUp, Users,
-} from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { LayoutDashboard, RefreshCw, AlertCircle, TrendingUp, TrendingDown, MoreHorizontal } from 'lucide-react'
 import { fetchDashboardData } from '@/lib/dashboard.queries'
 import { PageShell } from '@/components/layout/PageShell'
 import { Button } from '@/components/ui/Button'
-import { StatsGrid } from '@/components/dashboard/StatsGrid'
-import { RecentUsers } from '@/components/dashboard/widgets/RecentUsers'
-import { RecentPayments } from '@/components/dashboard/widgets/RecentPayments'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
-import { ReportShell, ReportStat } from '@/components/reports/ReportShell'
+import { supabase } from '@/lib/supabase'
 import {
-  BarChart, Bar, LineChart, Line, ComposedChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
-import {
-  defaultRange, buildCsv, downloadFile, downloadPdf,
-  fetchRevenueReport, fetchGrowthReport,
-  type DateRange,
-} from '@/lib/reports.queries'
 
-// ── Shared chart constants ────────────────────────────────────────────────────
+const CHART_STYLE = {
+  background: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: '0.5rem',
+  fontSize: 11,
+  color: 'hsl(var(--foreground))',
+}
+const AXIS_TICK  = { fontSize: 10, fill: 'hsl(var(--muted-foreground))' }
+const GRID_COLOR = 'hsl(var(--border))'
 
-const CHART_COLORS = ['hsl(84 81% 44%)', 'hsl(217 91% 60%)', 'hsl(0 72% 50%)']
-const CHART_STYLE  = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '0.5rem', fontSize: 12 }
-const AXIS_TICK    = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
-const GRID_STROKE  = 'hsl(var(--border))'
-
-function useReportRange(months = 3) {
-  const [range, setRange] = useState<DateRange>(defaultRange(months))
-  const setFrom = (v: string) => setRange((r) => ({ ...r, from: v }))
-  const setTo   = (v: string) => setRange((r) => ({ ...r, to: v }))
-  return { range, setFrom, setTo }
+function fmt(n: number) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
 }
 
-// ── Section heading ───────────────────────────────────────────────────────────
-
-function SectionHeading({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+// ── Row 1: flat stat card — label, huge value, trend ─────────────────────────
+function StatCard({
+  label, value, trend, trendLabel,
+}: {
+  label: string; value: string; trend?: string; trendLabel?: string; positive?: boolean
+}) {
+  const isPositive = trend?.startsWith('+') ?? true
   return (
-    <div className="flex items-center gap-2 pt-1">
-      <Icon className="h-4 w-4 text-muted-foreground" />
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      <div className="flex-1 h-px bg-border" />
+    <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-2">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold text-foreground tabular-nums leading-none">{value}</p>
+      {trend && (
+        <div className={`flex items-center gap-1 text-xs font-medium ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+          {isPositive
+            ? <TrendingUp className="h-3.5 w-3.5" />
+            : <TrendingDown className="h-3.5 w-3.5" />}
+          <span>{trend}</span>
+          {trendLabel && <span className="text-muted-foreground font-normal ml-0.5">{trendLabel}</span>}
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Revenue ───────────────────────────────────────────────────────────────────
+// ── Row 2 Left: Sales Overview with large donut ───────────────────────────────
+function SalesOverviewCard({ stats, loading }: { stats: any; loading: boolean }) {
+  const total = (stats?.totalUsers ?? 0)
+  const paid  = (stats?.proUsers ?? 0) + (stats?.eliteUsers ?? 0) + (stats?.teamUsers ?? 0)
+  const free  = stats?.freeUsers ?? 0
 
-function RevenueSection() {
-  const { range, setFrom, setTo } = useReportRange(6)
-  const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['report-revenue', range],
-    queryFn: () => fetchRevenueReport(range),
-  })
+  // Donut segments — thick ring, two colors like screenshot (bright green + dark)
+  const donutData = [
+    { value: paid > 0 ? paid : 1,  color: 'hsl(var(--primary))' },
+    { value: free > 0 ? free : 0,  color: 'hsl(0 0% 25%)' },
+  ]
 
-  const fmtEtb = (v: number) => {
-    if (v >= 1000) return 'ETB ' + (v / 1000).toFixed(1) + 'k'
-    return 'ETB ' + v.toFixed(0)
-  }
+  // Category breakdown — maps to the screenshot's 4-item grid
+  const breakdown = [
+    { label: 'Pro',    value: stats?.proUsers   ?? 0, dot: 'hsl(var(--primary))' },
+    { label: 'Elite',  value: stats?.eliteUsers ?? 0, dot: 'hsl(217 91% 60%)' },
+    { label: 'Team',   value: stats?.teamUsers  ?? 0, dot: 'hsl(270 91% 65%)' },
+    { label: 'Free',   value: free,                   dot: 'hsl(0 0% 45%)' },
+  ]
 
-  const exportCsv = () => {
-    if (!data) return
-    downloadFile(
-      buildCsv(
-        ['Month', 'Gross (ETB)', 'Net (ETB)', 'Fees (ETB)', 'Transactions', 'Refunds'],
-        data.byMonth.map((r) => [r.month_label, r.gross.toFixed(2), r.net.toFixed(2), r.fees.toFixed(2), r.transactions, r.refunds]),
-      ),
-      `revenue-${range.from}.csv`, 'text/csv',
-    )
-  }
-  const exportPdf = async () => {
-    if (!data) return
-    await downloadPdf(
-      'Revenue Report',
-      data.byMonth.map((r) => [r.month_label, formatCurrency(r.gross), formatCurrency(r.net), formatCurrency(r.fees), r.transactions, r.refunds]),
-      ['Month', 'Gross', 'Net', 'Fees', 'Transactions', 'Refunds'],
-    )
-  }
+  const revenue = stats?.monthlyRevenue ?? 0
 
   return (
-    <ReportShell
-      title="Revenue" description="Payment revenue, fees, and net breakdown by month."
-      dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo}
-      onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf}
-      isLoading={isLoading} isFetching={isFetching}
-    >
-      {data && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <ReportStat label="Total Gross" value={formatCurrency(data.totalGross)} color="text-primary" />
-            <ReportStat label="Total Net"   value={formatCurrency(data.totalNet)}   color="text-emerald-400" />
-            <ReportStat label="Total Fees"  value={formatCurrency(data.totalFees)}  color="text-red-400" />
-            <ReportStat label="Avg / Month" value={formatCurrency(data.avgMonthly)} />
+    <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-base font-semibold text-foreground">User Overview</p>
+        <button className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary transition-colors">
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex items-stretch gap-8">
+        {/* Large donut — thick ring like screenshot */}
+        <div className="relative shrink-0" style={{ width: 180, height: 180 }}>
+          <ResponsiveContainer width={180} height={180}>
+            <PieChart>
+              <Pie
+                data={donutData}
+                cx="50%" cy="50%"
+                innerRadius={58} outerRadius={82}
+                paddingAngle={3}
+                dataKey="value"
+                startAngle={90} endAngle={-270}
+                strokeWidth={0}
+              >
+                {donutData.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          {/* Center text — exactly like "102k / Weekly Visits" in screenshot */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-3xl font-bold text-foreground tabular-nums leading-none">
+              {loading ? '—' : fmt(total)}
+            </span>
+            <span className="text-xs text-muted-foreground mt-1 text-center leading-tight">
+              Total<br />Users
+            </span>
+          </div>
+        </div>
+
+        {/* Right side: revenue pill + 2x2 breakdown grid */}
+        <div className="flex-1 flex flex-col justify-between gap-4">
+          {/* Revenue pill — matches "Number of Sales / $71,020" */}
+          <div className="flex items-center gap-3 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/20 shrink-0">
+              <span className="text-primary font-bold text-sm">ETB</span>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground">Monthly Revenue</p>
+              <p className="text-base font-bold text-foreground tabular-nums leading-tight">
+                {loading ? '—' : formatCurrency(revenue)}
+              </p>
+            </div>
           </div>
 
-          <Card>
-            <CardHeader><CardTitle>Monthly Revenue (Gross vs Net)</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={data.byMonth} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
-                  <XAxis dataKey="month_label" tick={AXIS_TICK} tickLine={false} axisLine={false} />
-                  <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={fmtEtb} />
-                  <Tooltip contentStyle={CHART_STYLE} formatter={(v: number, n) => [formatCurrency(v), n]} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="gross" name="Gross" fill={CHART_COLORS[0]} radius={[3,3,0,0]} maxBarSize={40} />
-                  <Bar dataKey="net"   name="Net"   fill={CHART_COLORS[1]} radius={[3,3,0,0]} maxBarSize={40} />
-                  <Bar dataKey="fees"  name="Fees"  fill={CHART_COLORS[2]} radius={[3,3,0,0]} maxBarSize={40} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          {/* 2×2 breakdown grid — matches Electronic/Furniture/Clothes/Shoes */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {breakdown.map(b => (
+              <div key={b.label} className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full shrink-0" style={{ background: b.dot }} />
+                <div>
+                  <p className="text-[11px] text-muted-foreground">{b.label}</p>
+                  <p className="text-sm font-semibold text-foreground tabular-nums">
+                    {loading ? '—' : b.value.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      )}
-    </ReportShell>
+      </div>
+    </div>
   )
 }
 
-// ── Growth ────────────────────────────────────────────────────────────────────
+// ── Row 2 Right top: two small metric cards side by side ─────────────────────
+function MetricCard({
+  label, value, sub, iconBg, iconColor,
+}: {
+  label: string; value: string; sub?: string; iconBg: string; iconColor: string
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2 flex-1">
+      {/* Small colored icon square — like screenshot top-left of each card */}
+      <div className={`flex h-7 w-7 items-center justify-center rounded-md ${iconBg}`}>
+        <div className={`h-3 w-3 rounded-sm ${iconColor}`} />
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xl font-bold text-foreground tabular-nums leading-tight">{value}</p>
+        {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  )
+}
 
-function GrowthSection() {
-  const { range, setFrom, setTo } = useReportRange(12)
-  const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['report-growth', range],
-    queryFn: () => fetchGrowthReport(range),
-  })
-
-  const exportCsv = () => {
-    if (!data) return
-    downloadFile(
-      buildCsv(
-        ['Month', 'New Users', 'Cumulative', 'New Subs', 'MRR (ETB)'],
-        data.timeline.map((r) => [r.label, r.new_users, r.cumulative, r.new_subs, r.mrr]),
-      ),
-      `growth-${range.from}.csv`, 'text/csv',
-    )
-  }
-  const exportPdf = async () => {
-    if (!data) return
-    await downloadPdf(
-      'Growth Report',
-      data.timeline.map((r) => [r.label, r.new_users, r.cumulative, r.new_subs, formatCurrency(r.mrr)]),
-      ['Month', 'New Users', 'Cumulative', 'New Subs', 'MRR'],
-    )
-  }
+// ── Row 2 Right bottom: area chart (Total Profit) ────────────────────────────
+function TotalProfitChart({ data, loading }: { data: any; loading: boolean }) {
+  const chartData = (data?.revenue ?? []) as { month: string; revenue: number }[]
+  const total = chartData.reduce((s, d) => s + d.revenue, 0)
 
   return (
-    <ReportShell
-      title="Growth" description="User acquisition, cumulative registrations, and MRR."
-      dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo}
-      onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf}
-      isLoading={isLoading} isFetching={isFetching}
-    >
-      {data && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <ReportStat label="New Users"        value={data.totalNewUsers.toLocaleString()} color="text-primary" />
-            <ReportStat label="New Subscriptions" value={data.totalNewSubs.toLocaleString()} color="text-blue-400" />
-            <ReportStat label="Current MRR"       value={formatCurrency(data.totalMrr)}     color="text-emerald-400" />
-            <ReportStat label="Peak Month"         value={data.peakMonth}                   sub="Most new users" />
-          </div>
-
-          <Card>
-            <CardHeader><CardTitle>User Growth &amp; Cumulative</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={data.timeline} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                  <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} />
-                  <YAxis yAxisId="left"  tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <YAxis yAxisId="right" orientation="right" tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={CHART_STYLE} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar  yAxisId="left"  dataKey="new_users"   name="New users"   fill={CHART_COLORS[0]} radius={[3,3,0,0]} maxBarSize={36} />
-                  <Line yAxisId="right" dataKey="cumulative"  name="Cumulative"  stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} type="monotone" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>Monthly Recurring Revenue (MRR)</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={data.timeline} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                  <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} />
-                  <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={CHART_STYLE} formatter={(v: number) => [formatCurrency(v), 'MRR']} />
-                  <Line type="monotone" dataKey="mrr" name="MRR" stroke={CHART_COLORS[0]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
+      <div>
+        <p className="text-xs text-muted-foreground">Total Profit:</p>
+        <p className="text-base font-bold text-foreground tabular-nums">
+          {loading ? '—' : formatCurrency(total)}
+        </p>
+      </div>
+      {loading ? (
+        <div className="h-28 flex items-center justify-center">
+          <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
         </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={110}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -32, bottom: 0 }}>
+            <defs>
+              <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor="hsl(var(--primary))" stopOpacity={0.5} />
+                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
+            <XAxis dataKey="month" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+            <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false}
+              tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : ''} />
+            <Tooltip contentStyle={CHART_STYLE} formatter={(v: number) => [formatCurrency(v), 'Revenue']} />
+            <Area type="monotone" dataKey="revenue"
+              stroke="hsl(var(--primary))" strokeWidth={2}
+              fill="url(#profitGrad)" dot={false}
+              activeDot={{ r: 3, strokeWidth: 0 }} />
+          </AreaChart>
+        </ResponsiveContainer>
       )}
-    </ReportShell>
+    </div>
   )
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-
 export function DashboardPage() {
-  const {
-    data, isLoading, isError, error, refetch, isFetching, dataUpdatedAt,
-  } = useQuery({
+  const qc = useQueryClient()
+  const { data, isLoading, isError, error, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboardData,
     staleTime: 1000 * 60 * 2,
     refetchInterval: 1000 * 60 * 5,
   })
 
+  // Realtime: auto-refresh when new users register or payments change
+  useEffect(() => {
+    const ch = supabase.channel('dashboard-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'users' },
+        () => qc.invalidateQueries({ queryKey: ['dashboard'] }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' },
+        () => qc.invalidateQueries({ queryKey: ['dashboard'] }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_subscriptions' },
+        () => qc.invalidateQueries({ queryKey: ['dashboard'] }))
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [qc])
+
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null
+  const s = data?.stats
+
+  // Real trend: compare current month vs previous month revenue from chart data
+  const revenuePoints = data?.revenue ?? []
+  const currentMonthRev = revenuePoints[revenuePoints.length - 1]?.revenue ?? 0
+  const prevMonthRev    = revenuePoints[revenuePoints.length - 2]?.revenue ?? 0
+  const revTrend = prevMonthRev > 0
+    ? `${currentMonthRev >= prevMonthRev ? '+' : ''}${(((currentMonthRev - prevMonthRev) / prevMonthRev) * 100).toFixed(1)}%`
+    : null
+
+  // User growth trend: this month vs last month
+  const userGrowth = data?.userGrowth ?? []
+  const midIdx = Math.floor(userGrowth.length / 2)
+  const recentUsers  = userGrowth.slice(midIdx).reduce((s, p) => s + p.count, 0)
+  const previousUsers = userGrowth.slice(0, midIdx).reduce((s, p) => s + p.count, 0)
+  const userTrend = previousUsers > 0
+    ? `${recentUsers >= previousUsers ? '+' : ''}${(((recentUsers - previousUsers) / previousUsers) * 100).toFixed(1)}%`
+    : null
 
   return (
     <PageShell
-      title="Dashboard"
-      description="Live platform stats and analytics."
+      title="Overview"
+      description="Live platform summary."
       icon={LayoutDashboard}
       actions={
         <div className="flex items-center gap-2">
-          {lastUpdated && (
-            <span className="hidden sm:block text-xs text-muted-foreground">Updated {lastUpdated}</span>
-          )}
+          {lastUpdated && <span className="hidden sm:block text-xs text-muted-foreground">Updated {lastUpdated}</span>}
           <Button variant="outline" size="sm" onClick={() => refetch()} loading={isFetching}
-            leftIcon={<RefreshCw className="h-3.5 w-3.5" />}>
-            Refresh
-          </Button>
+            leftIcon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>
         </div>
       }
     >
-      {/* Error banner */}
       {isError && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-destructive" />
-          <div>
-            <p className="text-sm font-medium text-destructive">Failed to load dashboard data</p>
-            <p className="text-xs text-destructive/80 mt-0.5">
-              {(error as Error)?.message ?? 'Unknown error'}. Check your admin RLS policies.
-            </p>
-          </div>
+          <p className="text-sm text-destructive">{(error as Error)?.message ?? 'Failed to load'}</p>
         </div>
       )}
 
-      {/* Stats */}
-      <StatsGrid stats={data?.stats} loading={isLoading} />
+      {/* Row 1: 4 flat stat cards — no icons, label top, huge value, trend below */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Net Revenue"
+          value={s ? formatCurrency(s.monthlyRevenue) : '—'}
+          trend={revTrend ?? '+0.0%'}
+          trendLabel="vs last month"
+        />
+        <StatCard
+          label="Active Subscriptions"
+          value={s ? fmt(s.activeSubscriptions) : '—'}
+          trend={null}
+          trendLabel=""
+        />
+        <StatCard
+          label="Active Users (30d)"
+          value={s ? fmt(s.activeUsers) : '—'}
+          trend={userTrend ?? null}
+          trendLabel="vs prev 15d"
+        />
+        <StatCard
+          label="Total Users"
+          value={s ? fmt(s.totalUsers) : '—'}
+          trend={null}
+          trendLabel=""
+        />
+      </div>
 
-      {/* Revenue */}
-      <SectionHeading icon={DollarSign} title="Revenue" />
-      <RevenueSection />
+      {/* Row 2: Sales Overview (60%) | Two metric cards + area chart (40%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
-      {/* Growth */}
-      <SectionHeading icon={TrendingUp} title="Growth" />
-      <GrowthSection />
+        {/* Left — Sales Overview with big donut (takes 3/5) */}
+        <div className="lg:col-span-3">
+          <SalesOverviewCard stats={s} loading={isLoading} />
+        </div>
 
-      {/* Recent Activity */}
-      <SectionHeading icon={Users} title="Recent Activity" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <RecentUsers data={data?.recentUsers ?? []} loading={isLoading} />
-        <RecentPayments data={data?.recentPayments ?? []} loading={isLoading} />
+        {/* Right — two small cards on top + area chart below (takes 2/5) */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          {/* Two metric cards side by side */}
+          <div className="flex gap-4">
+            <MetricCard
+              label="New Customers"
+              value={s ? fmt(s.activeUsers) : '—'}
+              sub="Last Week"
+              iconBg="bg-primary/20"
+              iconColor="bg-primary"
+            />
+            <MetricCard
+              label="AI Requests"
+              value={s ? fmt(s.aiRequestsToday) : '—'}
+              sub="Today"
+              iconBg="bg-blue-500/20"
+              iconColor="bg-blue-400"
+            />
+          </div>
+
+          {/* Area chart — Total Profit */}
+          <TotalProfitChart data={data} loading={isLoading} />
+        </div>
       </div>
     </PageShell>
   )

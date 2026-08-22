@@ -35,6 +35,8 @@ export type Permission =
   | 'subscriptions.cancel'
   // Payments
   | 'payments.view'
+  | 'payments.verify'   // approve / reject payment submissions
+  | 'payments.manage'   // manage payment methods (CBE, Awash, Telebirr)
   // Workouts (sessions / history)
   | 'workouts.view'
   | 'workouts.delete'
@@ -68,7 +70,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     // Full access — all permissions
     'users.view', 'users.edit', 'users.delete', 'users.suspend', 'users.reset_password', 'users.change_role',
     'subscriptions.view', 'subscriptions.edit', 'subscriptions.cancel',
-    'payments.view',
+    'payments.view', 'payments.verify', 'payments.manage',
     'workouts.view', 'workouts.delete',
     'nutrition.view', 'nutrition.delete',
     'exercises.view', 'exercises.create', 'exercises.edit', 'exercises.delete',
@@ -83,7 +85,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     // Manage users, workouts, nutrition, notifications — NOT system settings or role assignment
     'users.view', 'users.edit', 'users.suspend', 'users.reset_password',
     'subscriptions.view', 'subscriptions.edit', 'subscriptions.cancel',
-    'payments.view',
+    'payments.view', 'payments.verify',
     'workouts.view', 'workouts.delete',
     'nutrition.view', 'nutrition.delete',
     'exercises.view', 'exercises.create', 'exercises.edit', 'exercises.delete',
@@ -107,7 +109,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     // View users, reset passwords, no destructive actions
     'users.view', 'users.reset_password', 'users.suspend',
     'subscriptions.view',
-    'payments.view',
+    'payments.view', 'payments.verify',
     'workouts.view',
     'nutrition.view',
     'notifications.view', 'notifications.send',

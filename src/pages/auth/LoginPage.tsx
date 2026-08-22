@@ -10,10 +10,12 @@ import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react'
+import { ShieldCheck, Eye, EyeOff, Mail } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -32,12 +34,26 @@ export function LoginPage() {
   const location = useLocation()
   const [showPw, setShowPw] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
+  const [resetMode, setResetMode] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetSending, setResetSending] = useState(false)
 
   const from = (location.state as { from?: Location })?.from?.pathname ?? '/dashboard'
 
-  // Already logged-in admin → redirect
   if (session && (isAdmin || isSuperAdmin)) {
     return <Navigate to={from} replace />
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetEmail.trim()) { toast.error('Enter your email address'); return }
+    setResetSending(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    })
+    setResetSending(false)
+    if (error) { toast.error(error.message); return }
+    toast.success('Password reset email sent — check your inbox')
+    setResetMode(false)
   }
 
   const {
@@ -72,51 +88,77 @@ export function LoginPage() {
 
         {/* Card */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-base font-semibold mb-5">Sign in to continue</h2>
+          {resetMode ? (
+            <>
+              <h2 className="text-base font-semibold mb-1">Reset password</h2>
+              <p className="text-xs text-muted-foreground mb-5">Enter your admin email and we'll send a reset link.</p>
+              <div className="space-y-4">
+                <Input
+                  label="Email"
+                  type="email"
+                  autoFocus
+                  value={resetEmail}
+                  onChange={e => setResetEmail(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleResetPassword()}
+                />
+                <Button className="w-full" loading={resetSending} onClick={handleResetPassword}
+                  leftIcon={<Mail className="h-4 w-4" />}>
+                  Send reset link
+                </Button>
+                <button type="button" onClick={() => setResetMode(false)}
+                  className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-center">
+                  ← Back to sign in
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold mb-5">Sign in to continue</h2>
+              <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+                <Input
+                  label="Email"
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  error={errors.email?.message}
+                  {...register('email')}
+                />
+                <div className="relative">
+                  <Input
+                    label="Password"
+                    type={showPw ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    error={errors.password?.message}
+                    {...register('password')}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPw((v) => !v)}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                    className="absolute right-3 top-[30px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
-            <Input
-              label="Email"
-              type="email"
-              autoComplete="email"
-              autoFocus
-              error={errors.email?.message}
-              {...register('email')}
-            />
+                {serverError && (
+                  <p role="alert" className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+                    {serverError}
+                  </p>
+                )}
 
-            <div className="relative">
-              <Input
-                label="Password"
-                type={showPw ? 'text' : 'password'}
-                autoComplete="current-password"
-                error={errors.password?.message}
-                {...register('password')}
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={() => setShowPw((v) => !v)}
-                aria-label={showPw ? 'Hide password' : 'Show password'}
-                className="absolute right-3 top-[30px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+                <Button type="submit" className="w-full mt-2" loading={isSubmitting}>
+                  Sign in
+                </Button>
 
-            {serverError && (
-              <p role="alert" className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
-                {serverError}
-              </p>
-            )}
-
-            <Button
-              type="submit"
-              className="w-full mt-2"
-              loading={isSubmitting}
-            >
-              Sign in
-            </Button>
-          </form>
+                <button type="button" onClick={() => setResetMode(true)}
+                  className="w-full text-xs text-muted-foreground hover:text-primary transition-colors text-center">
+                  Forgot password?
+                </button>
+              </form>
+            </>
+          )}
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">

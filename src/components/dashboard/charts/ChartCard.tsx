@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/Spinner'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
-import { BarChart2 } from 'lucide-react'
+import { BarChart2, MoreHorizontal } from 'lucide-react'
 
 interface ChartCardProps {
   title: string
@@ -28,10 +28,20 @@ export function ChartCard({ title, subtitle, children, loading = false, classNam
       role="figure"
       aria-label={title}
     >
-      <div className="mb-4">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+      {/* Header with 3-dot menu */}
+      <div className="flex items-start justify-between mb-4 gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        </div>
+        <button
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          aria-label="Chart options"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
       </div>
+
       {loading ? (
         <div className="flex h-[220px] items-center justify-center">
           <Spinner size="md" label={`Loading ${title} chart`} />

@@ -1,7 +1,6 @@
 /**
  * PageShell.tsx
- * Consistent page wrapper used by every admin page.
- * Renders the page title, optional description, optional action slot, and children.
+ * Consistent page wrapper — tighter header matching the dashboard screenshot style.
  */
 
 import type { ElementType, ReactNode } from 'react'
@@ -25,24 +24,24 @@ export function PageShell({
   className,
 }: PageShellProps) {
   return (
-    <div className={cn('space-y-6', className)}>
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+    <div className={cn('space-y-5', className)}>
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
           {Icon && (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
             </div>
           )}
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-foreground leading-tight truncate">{title}</h1>
             {description && (
-              <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">{description}</p>
             )}
           </div>
         </div>
         {actions && (
-          <div className="flex items-center gap-2 mt-2 sm:mt-0">{actions}</div>
+          <div className="flex items-center gap-2 shrink-0">{actions}</div>
         )}
       </div>
 
