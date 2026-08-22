@@ -6,7 +6,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { CreditCard, RefreshCw, ArrowUp, ArrowDown, Ban, Pause, Play,
-  Gift, RotateCcw, CalendarDays, DollarSign, Clock, AlertCircle } from 'lucide-react'
+  Gift, RotateCcw, CalendarDays, DollarSign, Clock, AlertCircle,
+  Sparkles, Zap, Shield, Users as UsersIcon, CheckCircle2,
+  Star, Infinity,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PageShell } from '@/components/layout/PageShell'
 import { Badge } from '@/components/ui/Badge'
@@ -304,20 +307,78 @@ function SubTable({ queryKey, statuses, plans }: {
 
 // ── Plans tab ─────────────────────────────────────────────────────────────────
 
+const TIER_CONFIG: Record<string, {
+  gradient: string
+  border: string
+  iconBg: string
+  iconColor: string
+  priceCls: string
+  btnCls: string
+  icon: React.ElementType
+  tagline: string
+  popular?: boolean
+}> = {
+  free: {
+    gradient:  'bg-gradient-to-br from-slate-900/60 via-card to-card',
+    border:    'border-slate-700/50',
+    iconBg:    'bg-slate-700/30',
+    iconColor: 'text-slate-400',
+    priceCls:  'text-slate-300',
+    btnCls:    'bg-slate-700 hover:bg-slate-600 text-white',
+    icon:      Zap,
+    tagline:   'Get started for free',
+  },
+  pro: {
+    gradient:  'bg-gradient-to-br from-primary/20 via-primary/5 to-card',
+    border:    'border-primary/60',
+    iconBg:    'bg-primary/20',
+    iconColor: 'text-primary',
+    priceCls:  'text-primary',
+    btnCls:    'bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20',
+    icon:      Sparkles,
+    tagline:   'For dedicated athletes',
+    popular:   true,
+  },
+  elite: {
+    gradient:  'bg-gradient-to-br from-violet-900/40 via-violet-950/20 to-card',
+    border:    'border-violet-500/50',
+    iconBg:    'bg-violet-500/20',
+    iconColor: 'text-violet-400',
+    priceCls:  'text-violet-400',
+    btnCls:    'bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20',
+    icon:      Shield,
+    tagline:   'For serious performers',
+  },
+  team: {
+    gradient:  'bg-gradient-to-br from-amber-900/40 via-amber-950/20 to-card',
+    border:    'border-amber-500/50',
+    iconBg:    'bg-amber-500/20',
+    iconColor: 'text-amber-400',
+    priceCls:  'text-amber-400',
+    btnCls:    'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20',
+    icon:      UsersIcon,
+    tagline:   'For teams & studios',
+  },
+}
+
 function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: () => void }) {
   const qc = useQueryClient()
   const [editTarget, setEditTarget] = useState<SubscriptionPlan | null>(null)
   const [saving, setSaving] = useState(false)
+
+  const fmtEtb = (n: number) => `ETB ${n.toLocaleString('en-ET', { minimumFractionDigits: 0 })}`
 
   const save = async () => {
     if (!editTarget) return
     setSaving(true)
     try {
       const { error } = await supabase.from('subscription_plans').update({
-        max_ai_calls_day: editTarget.max_ai_calls_day,
-        max_devices: editTarget.max_devices,
-        is_active: editTarget.is_active,
-        updated_at: new Date().toISOString(),
+        price_monthly_usd: editTarget.price_monthly_usd,
+        price_yearly_usd:  editTarget.price_yearly_usd,
+        max_ai_calls_day:  editTarget.max_ai_calls_day,
+        max_devices:       editTarget.max_devices,
+        is_active:         editTarget.is_active,
+        updated_at:        new Date().toISOString(),
       }).eq('id', editTarget.id)
       if (error) throw error
       toast.success('Plan updated')
@@ -328,37 +389,117 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
   }
 
   return (
-    <div className="space-y-4 pt-5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {plans.map((plan) => (
-          <div key={plan.id} className="rounded-xl border border-border bg-card p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">{plan.name}</h3>
-              <Badge variant={plan.is_active ? 'success' : 'outline'}>{plan.is_active ? 'Active' : 'Inactive'}</Badge>
+    <div className="space-y-6 pt-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+        {plans.map((plan) => {
+          const cfg = TIER_CONFIG[plan.tier] ?? TIER_CONFIG.free
+          const Icon = cfg.icon
+
+          // Feature list
+          const features = [
+            `${plan.max_ai_calls_day} AI coaching calls/day`,
+            `${plan.max_devices === 1 ? '1 device' : `Up to ${plan.max_devices} devices`}`,
+            ...(plan.features as Record<string, boolean>)?.export  ? ['PDF & JSON export'] : [],
+            ...(plan.features as Record<string, boolean>)?.ads === false ? ['Ad-free experience'] : [],
+            ...(plan.features as Record<string, boolean>)?.priority_support ? ['Priority support'] : [],
+            ...(plan.features as Record<string, boolean>)?.team ? ['Team management'] : [],
+          ]
+
+          return (
+            <div key={plan.id} className="relative flex flex-col">
+              {/* Popular badge */}
+              {cfg.popular && (
+                <div className="absolute -top-3.5 left-0 right-0 flex justify-center z-10">
+                  <span className="flex items-center gap-1 bg-primary text-primary-foreground text-[10px] font-bold px-3 py-1 rounded-full shadow-md shadow-primary/30">
+                    <Star className="h-2.5 w-2.5 fill-current" /> MOST POPULAR
+                  </span>
+                </div>
+              )}
+
+              <div className={`relative flex flex-col flex-1 rounded-2xl border-2 overflow-hidden ${cfg.border} ${cfg.gradient} ${cfg.popular ? 'mt-3.5 shadow-xl shadow-primary/10' : 'shadow-md'}`}>
+
+                {/* Inactive overlay */}
+                {!plan.is_active && (
+                  <div className="absolute inset-0 bg-background/60 flex items-center justify-center z-10 rounded-2xl">
+                    <Badge variant="outline" className="text-xs">Inactive</Badge>
+                  </div>
+                )}
+
+                {/* Card body */}
+                <div className="p-5 flex flex-col flex-1 space-y-4">
+
+                  {/* Header row */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${cfg.iconBg}`}>
+                      <Icon className={`h-5 w-5 ${cfg.iconColor}`} />
+                    </div>
+                    <Badge variant={plan.is_active ? 'success' : 'outline'} className="text-[10px]">
+                      {plan.is_active ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </div>
+
+                  {/* Plan name + tagline */}
+                  <div>
+                    <p className="font-bold text-base leading-tight">{plan.name}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{cfg.tagline}</p>
+                  </div>
+
+                  {/* Price */}
+                  <div className="flex items-end gap-1 pb-1 border-b border-border/40">
+                    {plan.price_monthly_usd === 0 ? (
+                      <span className={`text-2xl font-black ${cfg.priceCls}`}>Free</span>
+                    ) : (
+                      <>
+                        <span className={`text-2xl font-black tabular-nums leading-none ${cfg.priceCls}`}>
+                          {fmtEtb(plan.price_monthly_usd)}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground mb-0.5">/mo</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Feature checklist */}
+                  <ul className="space-y-2 flex-1">
+                    {features.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs">
+                        <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${cfg.iconColor}`} />
+                        <span className="text-foreground/75">{f}</span>
+                      </li>
+                    ))}
+                    {plan.price_monthly_usd === 0 && (
+                      <li className="flex items-start gap-2 text-xs">
+                        <Infinity className="h-3.5 w-3.5 shrink-0 mt-0.5 text-slate-400" />
+                        <span className="text-foreground/75">Forever free</span>
+                      </li>
+                    )}
+                  </ul>
+
+                  {/* Edit button */}
+                  <PermissionGate permission="settings.edit">
+                    <button
+                      onClick={() => setEditTarget({ ...plan })}
+                      className={`w-full h-9 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] ${cfg.btnCls}`}
+                    >
+                      Edit Plan
+                    </button>
+                  </PermissionGate>
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold tabular-nums">${plan.price_monthly_usd}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
-              <p className="text-sm text-muted-foreground">${plan.price_yearly_usd}/yr</p>
-            </div>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <div className="flex justify-between"><span>AI calls/day</span><span className="font-medium text-foreground">{plan.max_ai_calls_day}</span></div>
-              <div className="flex justify-between"><span>Devices</span><span className="font-medium text-foreground">{plan.max_devices}</span></div>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {Object.entries(plan.features).map(([k, v]) => (
-                <Badge key={k} variant={v ? 'success' : 'outline'} className="text-[10px]">{k}</Badge>
-              ))}
-            </div>
-            <PermissionGate permission="settings.edit">
-              <Button size="sm" variant="outline" className="w-full" onClick={() => setEditTarget({ ...plan })}>Edit limits</Button>
-            </PermissionGate>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title={`Edit ${editTarget?.name} limits`} size="sm">
+      {/* Edit modal */}
+      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title={`Edit ${editTarget?.name} Plan`} size="sm">
         {editTarget && (
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Monthly price (ETB)" type="number" min="0" value={editTarget.price_monthly_usd}
+                onChange={(e) => setEditTarget({ ...editTarget, price_monthly_usd: parseFloat(e.target.value) || 0 })} />
+              <Input label="Yearly price (ETB)" type="number" min="0" value={editTarget.price_yearly_usd}
+                onChange={(e) => setEditTarget({ ...editTarget, price_yearly_usd: parseFloat(e.target.value) || 0 })} />
+            </div>
             <Input label="AI calls per day" type="number" min="0" value={editTarget.max_ai_calls_day}
               onChange={(e) => setEditTarget({ ...editTarget, max_ai_calls_day: parseInt(e.target.value) || 0 })} />
             <Input label="Max devices" type="number" min="1" value={editTarget.max_devices}
@@ -370,7 +511,7 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
             </label>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setEditTarget(null)} disabled={saving}>Cancel</Button>
-              <Button onClick={save} loading={saving}>Save</Button>
+              <Button onClick={save} loading={saving}>Save Changes</Button>
             </div>
           </div>
         )}
@@ -474,89 +615,14 @@ function RenewalsTab({ plans }: { plans: SubscriptionPlan[] }) {
   )
 }
 
-// ── Payment history tab ───────────────────────────────────────────────────────
-
-function PaymentHistoryTab() {
-  const [page, setPage] = useState(0)
-  const [statusFilter, setStatusFilter] = useState('')
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['sub-payments', page, statusFilter],
-    queryFn: async () => {
-      const from = page * PAGE_SIZE; const to = from + PAGE_SIZE - 1
-      let q = supabase.from('payments')
-        .select('id, user_id, amount_usd, fee_usd, net_usd, status, provider, created_at', { count: 'exact' })
-        .order('created_at', { ascending: false }).range(from, to)
-      if (statusFilter) q = q.eq('status', statusFilter)
-      const { data: pays, error, count } = await q
-      if (error) throw error
-      const userIds = [...new Set((pays ?? []).map((p) => p.user_id))]
-      const userMap: Record<string, string> = {}
-      if (userIds.length) {
-        const { data: users } = await supabase.from('users').select('id, name').in('id', userIds)
-        for (const u of users ?? []) userMap[u.id] = u.name
-      }
-      return { data: (pays ?? []).map((p) => ({ ...p, user_name: userMap[p.user_id] ?? null })), total: count ?? 0 }
-    },
-    placeholderData: (p) => p,
-  })
-
-  const PAY_BADGE: Record<string, 'success' | 'danger' | 'warning' | 'info' | 'outline'> = {
-    succeeded: 'success', failed: 'danger', pending: 'warning', refunded: 'info', disputed: 'danger',
-  }
-
-  return (
-    <div className="space-y-4 pt-5">
-      <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
-        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-        <option value="">All statuses</option>
-        {['succeeded', 'pending', 'failed', 'refunded', 'disputed'].map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-
-      {isLoading ? <div className="flex justify-center py-12"><Spinner /></div> : (
-        <>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Amount</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Provider</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden md:table-cell">Net</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data?.data.map((p) => (
-                  <tr key={p.id} className="hover:bg-muted/20">
-                    <td className="px-4 py-2.5 font-medium truncate max-w-[130px]">{p.user_name ?? <span className="italic text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-2.5 text-right font-medium tabular-nums">{formatCurrency(Number(p.amount_usd))}</td>
-                    <td className="px-4 py-2.5"><Badge variant={PAY_BADGE[p.status] ?? 'outline'}>{p.status}</Badge></td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell text-muted-foreground capitalize">{p.provider}</td>
-                    <td className="px-4 py-2.5 text-right hidden md:table-cell text-muted-foreground tabular-nums">{p.net_usd ? formatCurrency(Number(p.net_usd)) : '—'}</td>
-                    <td className="px-4 py-2.5 hidden lg:table-cell text-muted-foreground">{formatDate(p.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onChange={setPage} />
-        </>
-      )}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'plans',     label: 'Plans',        icon: DollarSign },
-  { id: 'active',    label: 'Active',       icon: Play },
-  { id: 'trials',    label: 'Trials',       icon: Clock },
-  { id: 'expired',   label: 'Expired',      icon: AlertCircle },
-  { id: 'renewals',  label: 'Renewals',     icon: CalendarDays },
-  { id: 'payments',  label: 'Payments',     icon: CreditCard },
+  { id: 'plans',    label: 'Plans',    icon: DollarSign },
+  { id: 'active',   label: 'Active',   icon: Play },
+  { id: 'trials',   label: 'Trials',   icon: Clock },
+  { id: 'expired',  label: 'Expired',  icon: AlertCircle },
+  { id: 'renewals', label: 'Renewals', icon: CalendarDays },
 ]
 
 export function SubscriptionsPage() {
@@ -570,7 +636,7 @@ export function SubscriptionsPage() {
   return (
     <PageShell
       title="Subscriptions"
-      description="Manage plans, active subscriptions, renewals, and payments."
+      description="Manage plans, active subscriptions, and renewals."
       icon={CreditCard}
       actions={
         <Button variant="outline" size="sm" leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
@@ -581,12 +647,11 @@ export function SubscriptionsPage() {
     >
       <Tabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <TabPanel id="plans"     active={activeTab}><PlansTab plans={plans} onRefresh={refetch} /></TabPanel>
-      <TabPanel id="active"    active={activeTab}><SubTable queryKey="sub-active"   statuses={['active']}   plans={plans} /></TabPanel>
-      <TabPanel id="trials"    active={activeTab}><SubTable queryKey="sub-trialing" statuses={['trialing']} plans={plans} /></TabPanel>
-      <TabPanel id="expired"   active={activeTab}><SubTable queryKey="sub-expired"  statuses={['expired', 'cancelled', 'past_due']} plans={plans} /></TabPanel>
-      <TabPanel id="renewals"  active={activeTab}><RenewalsTab plans={plans} /></TabPanel>
-      <TabPanel id="payments"  active={activeTab}><PaymentHistoryTab /></TabPanel>
+      <TabPanel id="plans"    active={activeTab}><PlansTab plans={plans} onRefresh={refetch} /></TabPanel>
+      <TabPanel id="active"   active={activeTab}><SubTable queryKey="sub-active"   statuses={['active']}   plans={plans} /></TabPanel>
+      <TabPanel id="trials"   active={activeTab}><SubTable queryKey="sub-trialing" statuses={['trialing']} plans={plans} /></TabPanel>
+      <TabPanel id="expired"  active={activeTab}><SubTable queryKey="sub-expired"  statuses={['expired', 'cancelled', 'past_due']} plans={plans} /></TabPanel>
+      <TabPanel id="renewals" active={activeTab}><RenewalsTab plans={plans} /></TabPanel>
     </PageShell>
   )
 }

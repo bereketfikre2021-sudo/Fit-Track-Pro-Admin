@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -92,9 +92,9 @@ const composeSchema = z.object({
 
 type ComposeForm = z.infer<typeof composeSchema>
 
-function ComposeTab() {
+function ComposeTab({ prefill }: { prefill?: Template | null }) {
   const qc = useQueryClient()
-  const [result, setResult] = useState<{ total: number; inserted: number; push_queued: number; errors: string[] } | null>(null)
+  const [result, setResult] = useState<{ total: number; inserted: number; push_queued: number; email_sent: number; sms_sent: number; errors: string[] } | null>(null)
   const [users, setUsers] = useState<{ id: string; name: string }[]>([])
 
   const { register, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = useForm<ComposeForm>({
@@ -103,6 +103,22 @@ function ComposeTab() {
       channel: 'in_app', priority: 'normal', category: 'announcement', target: 'all',
     },
   })
+
+  // Apply prefill whenever a template is selected
+  useEffect(() => {
+    if (!prefill) return
+    reset({
+      title:      prefill.title,
+      body:       prefill.body,
+      channel:    (prefill.channel as ComposeForm['channel']) ?? 'in_app',
+      priority:   (prefill.priority as ComposeForm['priority']) ?? 'normal',
+      category:   (prefill.category as ComposeForm['category']) ?? 'announcement',
+      action_url: prefill.action_url ?? '',
+      target:     'all',
+      data:       '',
+    })
+    setResult(null)
+  }, [prefill, reset])
 
   const target  = watch('target')
   const channel = watch('channel')
@@ -583,13 +599,11 @@ const BUILT_IN_TEMPLATES: Template[] = [
   { id: 'achievement', name: 'Achievement Unlocked', title: '🏆 Achievement unlocked!', body: "Congratulations! You've completed your weekly workout goal. Keep it up!", channel: 'push', priority: 'normal', category: 'achievement' },
 ]
 
-function TemplatesTab() {
-  const [useModal, setUseModal] = useState<Template | null>(null)
-
+function TemplatesTab({ onUseTemplate }: { onUseTemplate: (tpl: Template) => void }) {
   return (
     <div className="space-y-5 pt-5">
       <p className="text-sm text-muted-foreground">
-        Click "Use template" to pre-fill the Compose form. All templates are editable before sending.
+        Click "Use template" to pre-fill the Compose form. All fields are editable before sending.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -610,33 +624,14 @@ function TemplatesTab() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <Badge variant="default">{CATEGORY_LABELS[tpl.category] ?? tpl.category}</Badge>
-                <Button size="sm" variant="outline" onClick={() => setUseModal(tpl)}>Use template</Button>
+                <Button size="sm" onClick={() => onUseTemplate(tpl)}>
+                  Use template
+                </Button>
               </div>
             </div>
           )
         })}
       </div>
-
-      {/* Preview + use modal */}
-      {useModal && (
-        <Modal open={!!useModal} onClose={() => setUseModal(null)} title={`Use template: ${useModal.name}`} size="sm">
-          <div className="space-y-4">
-            <div className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Title: </span>{useModal.title}</div>
-              <div><span className="text-muted-foreground">Body: </span>{useModal.body}</div>
-              <div><span className="text-muted-foreground">Channel: </span><span className="capitalize">{useModal.channel}</span></div>
-              <div><span className="text-muted-foreground">Category: </span>{CATEGORY_LABELS[useModal.category]}</div>
-              {useModal.action_url && <div><span className="text-muted-foreground">URL: </span><code className="text-xs bg-muted px-1 rounded">{useModal.action_url}</code></div>}
-            </div>
-            <p className="text-xs text-muted-foreground bg-muted/30 rounded-md p-3">
-              Go to the Compose tab and fill in the fields with this template's content. Targeting and scheduling are set independently.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setUseModal(null)}>Close</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }
@@ -645,6 +640,12 @@ function TemplatesTab() {
 
 export function NotificationsPage() {
   const [activeTab, setActiveTab] = useState('compose')
+  const [pendingTemplate, setPendingTemplate] = useState<Template | null>(null)
+
+  const handleUseTemplate = (tpl: Template) => {
+    setPendingTemplate(tpl)   // set prefill data
+    setActiveTab('compose')   // switch to compose tab
+  }
 
   return (
     <PageShell
@@ -653,10 +654,14 @@ export function NotificationsPage() {
       icon={Bell}
     >
       <Tabs tabs={PAGE_TABS} active={activeTab} onChange={setActiveTab} />
-      <TabPanel id="compose"   active={activeTab}><ComposeTab /></TabPanel>
+      <TabPanel id="compose"   active={activeTab}>
+        <ComposeTab prefill={pendingTemplate} />
+      </TabPanel>
       <TabPanel id="history"   active={activeTab}><HistoryTab /></TabPanel>
       <TabPanel id="stats"     active={activeTab}><DeliveryStatsTab /></TabPanel>
-      <TabPanel id="templates" active={activeTab}><TemplatesTab /></TabPanel>
+      <TabPanel id="templates" active={activeTab}>
+        <TemplatesTab onUseTemplate={handleUseTemplate} />
+      </TabPanel>
     </PageShell>
   )
 }
