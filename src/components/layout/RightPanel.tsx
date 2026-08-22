@@ -5,7 +5,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Activity, Users, CreditCard, RefreshCw, CheckCheck } from 'lucide-react'
+import { Bell, Activity, Users, CreditCard, RefreshCw, CheckCheck, ChevronLeft } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -252,16 +252,49 @@ function MembersSection() {
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function RightPanel({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
+export function RightPanel({
+  collapsed,
+  onCollapse,
+}: {
+  collapsed: boolean
+  onCollapse: (v: boolean) => void
+}) {
   return (
-    <aside className="hidden lg:flex flex-col fixed top-14 right-0 bottom-0 w-72 border-l border-border bg-card overflow-y-auto z-20">
-      <div className="p-4 space-y-5">
-        <NotificationsSection />
-        <div className="h-px bg-border" />
-        <ActivitiesSection />
-        <div className="h-px bg-border" />
-        <MembersSection />
-      </div>
+    <aside
+      className={cn(
+        'hidden lg:flex flex-col fixed top-14 right-0 bottom-0 border-l border-border bg-card z-20 transition-[width] duration-200 ease-in-out overflow-hidden',
+        collapsed ? 'w-10' : 'w-72',
+      )}
+    >
+      {/* Collapse toggle button */}
+      <button
+        onClick={() => onCollapse(!collapsed)}
+        title={collapsed ? 'Expand panel' : 'Collapse panel'}
+        className={cn(
+          'flex items-center justify-center shrink-0 border-b border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors',
+          collapsed ? 'h-10 w-full' : 'h-10 w-full px-3',
+        )}
+      >
+        {collapsed ? (
+          <ChevronLeft className="h-4 w-4 rotate-180" />
+        ) : (
+          <div className="flex items-center justify-between w-full">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Panel</span>
+            <ChevronLeft className="h-4 w-4" />
+          </div>
+        )}
+      </button>
+
+      {/* Content — hidden when collapsed */}
+      {!collapsed && (
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          <NotificationsSection />
+          <div className="h-px bg-border" />
+          <ActivitiesSection />
+          <div className="h-px bg-border" />
+          <MembersSection />
+        </div>
+      )}
     </aside>
   )
 }
