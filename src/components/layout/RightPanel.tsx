@@ -1,0 +1,267 @@
+/**
+ * RightPanel.tsx
+ * Fixed right panel — always functional on every page.
+ * Has its own queries independent of DashboardPage.
+ */
+
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bell, Activity, Users, CreditCard, RefreshCw, CheckCheck } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+
+function timeAgo(d: string): string {
+  const diff = Date.now() - new Date(d).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+const COLORS = [
+  'bg-blue-500/20 text-blue-400',
+  'bg-violet-500/20 text-violet-400',
+  'bg-emerald-500/20 text-emerald-400',
+  'bg-amber-500/20 text-amber-400',
+  'bg-rose-500/20 text-rose-400',
+]
+function avatarColor(id: string) {
+  let h = 0; for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h)
+  return COLORS[Math.abs(h) % COLORS.length]
+}
+
+// ── Notifications section ─────────────────────────────────────────────────────
+function NotificationsSection() {
+  const qc = useQueryClient()
+
+  const { data: notifications = [], isLoading } = useQuery({
+    queryKey: ['right-panel-notifications'],
+    queryFn: async () => {
+      try {
+        const { data } = await supabase
+          .from('notifications')
+          .select('id, title, body, is_read, created_at, type')
+          .order('created_at', { ascending: false })
+          .limit(8)
+        return data ?? []
+      } catch { return [] }
+    },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 60,
+  })
+
+  const unread = notifications.filter((n: any) => !n.is_read).length
+
+  const markAllRead = async () => {
+    await supabase.from('notifications').update({ is_read: true }).eq('is_read', false)
+    qc.refetchQueries({ queryKey: ['right-panel-notifications'] })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notifications</h3>
+          {unread > 0 && (
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {unread > 0 && (
+            <button onClick={markAllRead} title="Mark all read"
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+              <CheckCheck className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <Link to="/notifications" className="text-[10px] text-primary hover:underline">All</Link>
+        </div>
+      </div>
+
+      <div className="space-y-2.5">
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <RefreshCw className="h-4 w-4 text-muted-foreground animate-spin" />
+          </div>
+        ) : notifications.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-2">No notifications yet.</p>
+        ) : (
+          notifications.map((n: any) => (
+            <div key={n.id} className={cn(
+              'flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-secondary/50',
+              !n.is_read && 'bg-primary/5'
+            )}>
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 mt-0.5">
+                <Bell className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
+                  {n.title ?? n.body ?? 'Notification'}
+                </p>
+                {n.body && n.title && (
+                  <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{n.body}</p>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(n.created_at)}</p>
+              </div>
+              {!n.is_read && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0 mt-2" />}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Activities section ────────────────────────────────────────────────────────
+function ActivitiesSection() {
+  const { data: recentUsers = [] } = useQuery({
+    queryKey: ['right-panel-recent-users'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('users')
+        .select('id, name, registration_date')
+        .order('registration_date', { ascending: false })
+        .limit(4)
+      return data ?? []
+    },
+    staleTime: 1000 * 60,
+  })
+
+  const { data: recentPayments = [] } = useQuery({
+    queryKey: ['right-panel-recent-payments'],
+    queryFn: async () => {
+      try {
+        const { data } = await supabase
+          .from('payment_submissions')
+          .select('id, amount_etb, status, submitted_at')
+          .order('submitted_at', { ascending: false })
+          .limit(4)
+        return data ?? []
+      } catch {
+        return []
+      }
+    },
+    staleTime: 1000 * 60,
+  })
+
+  const activities = [
+    ...recentUsers.map((u: any) => ({
+      id: 'u-' + u.id,
+      icon: Users,
+      text: `${u.name ?? 'A user'} registered`,
+      time: u.registration_date ?? '',
+      color: 'text-blue-400',
+      bg: 'bg-blue-500/15',
+    })),
+    ...recentPayments.map((p: any) => ({
+      id: 'p-' + p.id,
+      icon: CreditCard,
+      text: `Payment ${p.status?.replace('_', ' ')} · ETB ${Number(p.amount_etb ?? 0).toLocaleString('en-ET')}`,
+      time: p.submitted_at ?? '',
+      color: p.status === 'approved' ? 'text-emerald-400' : p.status === 'rejected' ? 'text-red-400' : 'text-amber-400',
+      bg: p.status === 'approved' ? 'bg-emerald-500/15' : p.status === 'rejected' ? 'bg-red-500/15' : 'bg-amber-500/15',
+    })),
+  ]
+    .filter(a => a.time)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+    .slice(0, 6)
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Activities</h3>
+        <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+      <div className="space-y-2.5">
+        {activities.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No recent activity.</p>
+        ) : (
+          activities.map(a => (
+            <div key={a.id} className="flex items-start gap-2.5">
+              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${a.bg}`}>
+                <a.icon className={`h-3.5 w-3.5 ${a.color}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-foreground leading-snug line-clamp-2">{a.text}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(a.time)}</p>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Recent members section ────────────────────────────────────────────────────
+function MembersSection() {
+  const navigate = useNavigate()
+
+  const { data: members = [] } = useQuery({
+    queryKey: ['right-panel-members'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('users')
+        .select('id, name, avatar_url')
+        .order('registration_date', { ascending: false })
+        .limit(6)
+      return data ?? []
+    },
+    staleTime: 1000 * 60 * 2,
+  })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent Members</h3>
+        <Link to="/users" className="text-[10px] text-primary hover:underline">View all</Link>
+      </div>
+      <div className="space-y-1.5">
+        {members.map((u: any) => {
+          const initials = (u.name ?? '?').slice(0, 2).toUpperCase()
+          const color = avatarColor(u.id)
+          return (
+            <button key={u.id}
+              onClick={() => navigate(`/users/${u.id}`)}
+              className="flex items-center gap-2.5 w-full rounded-lg px-1.5 py-1.5 hover:bg-secondary/50 transition-colors text-left group">
+              <div className={cn(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold overflow-hidden',
+                color,
+              )}>
+                {u.avatar_url
+                  ? <img src={u.avatar_url} alt={u.name ?? ''} className="h-full w-full object-cover" />
+                  : initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">
+                  {u.name ?? <span className="text-muted-foreground italic">No name</span>}
+                </p>
+              </div>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+            </button>
+          )
+        })}
+        {members.length === 0 && <p className="text-xs text-muted-foreground">No members yet.</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
+export function RightPanel({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
+  return (
+    <aside className="hidden lg:flex flex-col fixed top-14 right-0 bottom-0 w-72 border-l border-border bg-card overflow-y-auto z-20">
+      <div className="p-4 space-y-5">
+        <NotificationsSection />
+        <div className="h-px bg-border" />
+        <ActivitiesSection />
+        <div className="h-px bg-border" />
+        <MembersSection />
+      </div>
+    </aside>
+  )
+}
