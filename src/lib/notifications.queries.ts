@@ -191,7 +191,7 @@ async function resolveTargetUserIds(payload: SendPayload): Promise<string[]> {
   }
 
   if (payload.target === 'tier') {
-    // Get users on a specific subscription tier
+    // Get users on a specific subscription tier — exclude admin users
     const { data: subs } = await supabase
       .from('user_subscriptions')
       .select('user_id, subscription_plans!inner(tier)')
@@ -199,12 +199,31 @@ async function resolveTargetUserIds(payload: SendPayload): Promise<string[]> {
     const filtered = (subs ?? []).filter(
       (s) => (s.subscription_plans as unknown as { tier: string } | null)?.tier === payload.target_tier,
     )
-    return filtered.map((s) => s.user_id)
+    const tierUserIds = filtered.map((s) => s.user_id)
+    return await filterOutAdmins(tierUserIds)
   }
 
-  // 'all' — get all users
+  // 'all' — get all non-admin users
   const { data: users } = await supabase.from('users').select('id')
-  return (users ?? []).map((u) => u.id)
+  const allUserIds = (users ?? []).map((u) => u.id)
+  return await filterOutAdmins(allUserIds)
+}
+
+/**
+ * Removes admin/super_admin user IDs from a list so that broadcast
+ * notifications are never delivered to admin accounts — only real app users.
+ */
+async function filterOutAdmins(userIds: string[]): Promise<string[]> {
+  if (!userIds.length) return []
+
+  const { data: adminRoles } = await supabase
+    .from('user_roles')
+    .select('user_id')
+    .in('user_id', userIds)
+    .in('role', ['admin', 'super_admin'])
+
+  const adminSet = new Set((adminRoles ?? []).map((r) => r.user_id))
+  return userIds.filter((id) => !adminSet.has(id))
 }
 
 // ── Send notification ─────────────────────────────────────────────────────────
@@ -213,6 +232,8 @@ export interface SendResult {
   total: number
   inserted: number
   push_queued: number
+  email_sent: number
+  sms_sent: number
   errors: string[]
 }
 
@@ -226,9 +247,11 @@ export async function sendNotification(payload: SendPayload): Promise<SendResult
   }
 
   const userIds = await resolveTargetUserIds(payload)
-  if (!userIds.length) return { total: 0, inserted: 0, push_queued: 0, errors: ['No target users found'] }
+  if (!userIds.length) return { total: 0, inserted: 0, push_queued: 0, email_sent: 0, sms_sent: 0, errors: ['No target users found'] }
 
-  // Build notification rows
+  // ── In-app: always insert a DB row regardless of channel ─────────────────
+  // This ensures every notification is visible in the app bell even if
+  // push/email/sms also fires.
   const rows = userIds.map((user_id) => ({
     user_id,
     title:      payload.title,
@@ -240,22 +263,21 @@ export async function sendNotification(payload: SendPayload): Promise<SendResult
     action_url: payload.action_url || null,
     expires_at: null,
     is_read:    false,
-    sent_at:    payload.channel === 'in_app' ? new Date().toISOString() : null,
+    sent_at:    new Date().toISOString(),
   }))
 
-  // Insert into notifications table (in batches of 500)
   let inserted = 0
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
-    const { data: inserted_rows, error } = await supabase
+    const { data: insertedRows, error } = await supabase
       .from('notifications')
       .insert(batch)
       .select('id')
-    if (error) { errors.push(`Batch ${i / 500 + 1}: ${error.message}`); continue }
-    inserted += inserted_rows?.length ?? 0
+    if (error) { errors.push(`DB insert batch ${Math.floor(i / 500) + 1}: ${error.message}`); continue }
+    inserted += insertedRows?.length ?? 0
   }
 
-  // For push notifications: call Edge Function (FCM Admin SDK required server-side)
+  // ── Push notifications via FCM Edge Function ──────────────────────────────
   let push_queued = 0
   if (payload.channel === 'push' && inserted > 0) {
     try {
@@ -264,20 +286,77 @@ export async function sendNotification(payload: SendPayload): Promise<SendResult
           user_ids: userIds,
           title:    payload.title,
           body:     payload.body,
-          data:     { ...extraData, action_url: payload.action_url || undefined, category: payload.category },
+          data: {
+            ...Object.fromEntries(Object.entries(extraData).map(([k, v]) => [k, String(v)])),
+            action_url: payload.action_url || '',
+            category:   payload.category,
+          },
         },
       })
       if (fnErr) {
-        errors.push(`FCM Edge Function: ${fnErr.message} — notifications saved to DB but push not delivered`)
+        errors.push(`Push: ${fnErr.message}`)
       } else {
-        push_queued = result?.queued ?? userIds.length
+        push_queued = result?.sent ?? result?.queued ?? 0
+        if (result?.errors?.length) {
+          for (const e of result.errors) errors.push(`Push: ${e}`)
+        }
       }
     } catch (e) {
-      errors.push(`FCM Edge Function unavailable: ${(e as Error).message} — notifications saved to DB only`)
+      errors.push(`Push Edge Function unavailable: ${(e as Error).message}`)
     }
   }
 
-  return { total: userIds.length, inserted, push_queued, errors }
+  // ── Email notifications via Resend Edge Function ──────────────────────────
+  let email_sent = 0
+  if (payload.channel === 'email' && inserted > 0) {
+    try {
+      const { data: result, error: fnErr } = await supabase.functions.invoke('send-email-notification', {
+        body: {
+          user_ids:   userIds,
+          title:      payload.title,
+          body:       payload.body,
+          action_url: payload.action_url || undefined,
+          category:   payload.category,
+        },
+      })
+      if (fnErr) {
+        errors.push(`Email: ${fnErr.message}`)
+      } else {
+        email_sent = result?.sent ?? 0
+        if (result?.errors?.length) {
+          for (const e of result.errors) errors.push(`Email: ${e}`)
+        }
+      }
+    } catch (e) {
+      errors.push(`Email Edge Function unavailable: ${(e as Error).message}`)
+    }
+  }
+
+  // ── SMS notifications via Africa's Talking Edge Function ──────────────────
+  let sms_sent = 0
+  if (payload.channel === 'sms' && inserted > 0) {
+    try {
+      const { data: result, error: fnErr } = await supabase.functions.invoke('send-sms-notification', {
+        body: {
+          user_ids: userIds,
+          title:    payload.title,
+          body:     payload.body,
+        },
+      })
+      if (fnErr) {
+        errors.push(`SMS: ${fnErr.message}`)
+      } else {
+        sms_sent = result?.sent ?? 0
+        if (result?.errors?.length) {
+          for (const e of result.errors) errors.push(`SMS: ${e}`)
+        }
+      }
+    } catch (e) {
+      errors.push(`SMS Edge Function unavailable: ${(e as Error).message}`)
+    }
+  }
+
+  return { total: userIds.length, inserted, push_queued, email_sent, sms_sent, errors }
 }
 
 // ── Delete notification ───────────────────────────────────────────────────────

@@ -107,11 +107,18 @@ function ComposeTab() {
   const target  = watch('target')
   const channel = watch('channel')
 
-  // Load users for user-targeting
+  // Load non-admin users for user-targeting
   const loadUsers = async () => {
     if (users.length) return
+    // Fetch all admin user IDs first to exclude them
+    const { data: adminRoles } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .in('role', ['admin', 'super_admin'])
+    const adminIds = new Set((adminRoles ?? []).map((r: any) => r.user_id))
+
     const { data } = await supabase.from('users').select('id, name').order('name').limit(500)
-    setUsers(data ?? [])
+    setUsers((data ?? []).filter((u: any) => !adminIds.has(u.id)))
   }
 
   const onSubmit = async (values: ComposeForm) => {
@@ -128,7 +135,12 @@ function ComposeTab() {
     if (r.inserted > 0) {
       qc.invalidateQueries({ queryKey: ['notifications'] })
       qc.invalidateQueries({ queryKey: ['delivery-stats'] })
-      if (r.errors.length === 0) toast.success(`Sent to ${r.inserted} user(s)`)
+      const deliveryDetail = [
+        r.push_queued > 0  && `${r.push_queued} push sent`,
+        r.email_sent > 0   && `${r.email_sent} email sent`,
+        r.sms_sent > 0     && `${r.sms_sent} SMS sent`,
+      ].filter(Boolean).join(' · ')
+      if (r.errors.length === 0) toast.success(`Sent to ${r.inserted} user(s)${deliveryDetail ? ' · ' + deliveryDetail : ''}`)
       else toast.warning(`Sent to ${r.inserted} user(s) with some warnings`)
     } else {
       toast.error('No notifications were sent')
@@ -211,7 +223,7 @@ function ComposeTab() {
           <div className={cn('rounded-xl p-4 space-y-2', result.inserted > 0 ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-destructive/10 border border-destructive/20')}>
             <div className="flex items-center gap-2 font-medium text-sm">
               {result.inserted > 0
-                ? <><CheckCircle2 className="h-4 w-4 text-emerald-400" />Sent to {result.inserted} of {result.total} user(s){result.push_queued > 0 && ` · ${result.push_queued} push queued`}</>
+                ? <><CheckCircle2 className="h-4 w-4 text-emerald-400" />Saved to {result.inserted} of {result.total} user(s){result.push_queued > 0 && ` · ${result.push_queued} push delivered`}{result.email_sent > 0 && ` · ${result.email_sent} email sent`}{result.sms_sent > 0 && ` · ${result.sms_sent} SMS sent`}</>
                 : <><AlertCircle className="h-4 w-4 text-destructive" />No notifications sent</>}
             </div>
             {result.errors.map((e, i) => <p key={i} className="text-xs text-amber-400 pl-6">{e}</p>)}
