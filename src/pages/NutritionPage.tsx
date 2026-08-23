@@ -392,10 +392,10 @@ function MealPlansTab() {
       // Deduplicate foods in each slot before saving to prevent accumulation
       const dedupedDays: MealPlanDays = {}
       for (const [day, slots] of Object.entries(newDays)) {
-        dedupedDays[day] = {}
+        dedupedDays[day] = {} as any
         for (const [slot, foods] of Object.entries(slots as Record<string, any[]>)) {
           const seen = new Set<string>()
-          dedupedDays[day][slot] = (foods || []).filter((food: any) => {
+          ;(dedupedDays[day] as any)[slot] = (foods || []).filter((food: any) => {
             const key = `${String(food.name || '').toLowerCase().trim()}|${food.calories ?? ''}`
             if (seen.has(key)) return false
             seen.add(key)
