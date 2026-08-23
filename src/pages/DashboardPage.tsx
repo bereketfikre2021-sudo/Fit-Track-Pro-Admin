@@ -287,25 +287,25 @@ export function DashboardPage() {
         <StatCard
           label="Net Revenue"
           value={s ? formatCurrency(s.monthlyRevenue) : '—'}
-          trend={revTrend ?? '+0.0%'}
+          trend={revTrend ?? undefined}
           trendLabel="vs last month"
         />
         <StatCard
           label="Active Subscriptions"
           value={s ? fmt(s.activeSubscriptions) : '—'}
-          trend={null}
+          trend={undefined}
           trendLabel=""
         />
         <StatCard
           label="Active Users (30d)"
           value={s ? fmt(s.activeUsers) : '—'}
-          trend={userTrend ?? null}
+          trend={userTrend ?? undefined}
           trendLabel="vs prev 15d"
         />
         <StatCard
           label="Total Users"
           value={s ? fmt(s.totalUsers) : '—'}
-          trend={null}
+          trend={undefined}
           trendLabel=""
         />
       </div>
