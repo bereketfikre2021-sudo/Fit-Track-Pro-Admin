@@ -5,7 +5,9 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Activity, Users, CreditCard, RefreshCw, CheckCheck, ChevronLeft } from 'lucide-react'
+import { useEffect } from 'react'
+import { Bell, Activity, Users, CreditCard, RefreshCw, CheckCheck, ChevronLeft,
+  ShieldCheck, UserPlus, XCircle, CheckCircle2, AlertTriangle, Zap } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -33,38 +35,112 @@ function avatarColor(id: string) {
   return COLORS[Math.abs(h) % COLORS.length]
 }
 
-// ── Notifications section ─────────────────────────────────────────────────────
+// ── Admin system notifications ────────────────────────────────────────────────
+// Shows only admin-relevant events:
+//   - New payment submissions (type = payment_submitted)
+//   - Payment approved/rejected confirmations
+//   - New user registrations
+//   - Subscription expirations
+// These are stored in the notifications table but inserted by the system
+// for users whose user_id is also an admin — OR we query system event types directly.
+
+const ADMIN_EVENT_TYPES = [
+  'payment_submitted',
+  'payment_approved',
+  'payment_rejected',
+  'subscription_expired',
+  'subscription_expiring',
+]
+
+interface AdminNotif {
+  id: string
+  type: string
+  title: string
+  body: string
+  is_read: boolean
+  created_at: string
+  user_id: string
+  user_name?: string | null
+}
+
+function notifIcon(type: string) {
+  if (type === 'payment_submitted')    return { Icon: ShieldCheck,    cls: 'bg-amber-500/20 text-amber-400' }
+  if (type === 'payment_approved')     return { Icon: CheckCircle2,   cls: 'bg-emerald-500/20 text-emerald-400' }
+  if (type === 'payment_rejected')     return { Icon: XCircle,        cls: 'bg-red-500/20 text-red-400' }
+  if (type === 'subscription_expired') return { Icon: AlertTriangle,  cls: 'bg-red-500/20 text-red-400' }
+  if (type === 'subscription_expiring')return { Icon: Zap,            cls: 'bg-amber-500/20 text-amber-400' }
+  return { Icon: Bell, cls: 'bg-primary/15 text-primary' }
+}
+
 function NotificationsSection() {
   const qc = useQueryClient()
+  const { user } = useAuth()
+
+  const fetchAdminNotifs = async (): Promise<AdminNotif[]> => {
+    try {
+      // Fetch system-type notifications across ALL users (admin bypass via RLS)
+      // These are the notifications the system sent to users about payment/subscription events
+      // which are also the events the admin cares about seeing
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('id, type, title, body, is_read, created_at, user_id')
+        .in('type', ADMIN_EVENT_TYPES)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (error || !data?.length) return []
+
+      // Enrich with user names
+      const userIds = [...new Set(data.map((n) => n.user_id))]
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name')
+        .in('id', userIds)
+      const nameMap: Record<string, string | null> = {}
+      for (const u of users ?? []) nameMap[u.id] = u.name
+
+      return data.map((n) => ({ ...n, user_name: nameMap[n.user_id] ?? null }))
+    } catch { return [] }
+  }
 
   const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ['right-panel-notifications'],
-    queryFn: async () => {
-      try {
-        const { data } = await supabase
-          .from('notifications')
-          .select('id, title, body, is_read, created_at, type')
-          .order('created_at', { ascending: false })
-          .limit(8)
-        return data ?? []
-      } catch { return [] }
-    },
+    queryKey: ['right-panel-admin-notifications'],
+    queryFn: fetchAdminNotifs,
     staleTime: 1000 * 30,
     refetchInterval: 1000 * 60,
   })
 
-  const unread = notifications.filter((n: any) => !n.is_read).length
+  // Realtime: auto-refresh when a new payment_submitted or subscription event arrives
+  useEffect(() => {
+    const ch = supabase.channel('admin-notifs-realtime')
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'notifications',
+      }, (payload) => {
+        if (ADMIN_EVENT_TYPES.includes(payload.new?.type)) {
+          qc.invalidateQueries({ queryKey: ['right-panel-admin-notifications'] })
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [qc])
+
+  const unread = notifications.filter((n: AdminNotif) => !n.is_read).length
 
   const markAllRead = async () => {
-    await supabase.from('notifications').update({ is_read: true }).eq('is_read', false)
-    qc.refetchQueries({ queryKey: ['right-panel-notifications'] })
+    // Mark all admin-type notifications as read
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .in('type', ADMIN_EVENT_TYPES)
+      .eq('is_read', false)
+    qc.invalidateQueries({ queryKey: ['right-panel-admin-notifications'] })
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notifications</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">System Alerts</h3>
           {unread > 0 && (
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
               {unread > 9 ? '9+' : unread}
@@ -78,7 +154,7 @@ function NotificationsSection() {
               <CheckCheck className="h-3.5 w-3.5" />
             </button>
           )}
-          <Link to="/notifications" className="text-[10px] text-primary hover:underline">All</Link>
+          <Link to="/payments" className="text-[10px] text-primary hover:underline">Payments</Link>
         </div>
       </div>
 
@@ -88,34 +164,36 @@ function NotificationsSection() {
             <RefreshCw className="h-4 w-4 text-muted-foreground animate-spin" />
           </div>
         ) : notifications.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-2">No notifications yet.</p>
+          <p className="text-xs text-muted-foreground py-2">No system alerts.</p>
         ) : (
-          notifications.map((n: any) => (
-            <div key={n.id} className={cn(
-              'flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-secondary/50',
-              !n.is_read && 'bg-primary/5'
-            )}>
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 mt-0.5">
-                <Bell className="h-3.5 w-3.5 text-primary" />
+          notifications.slice(0, 8).map((n: AdminNotif) => {
+            const { Icon, cls } = notifIcon(n.type)
+            return (
+              <div key={n.id} className={cn(
+                'flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 transition-colors hover:bg-secondary/50',
+                !n.is_read && 'bg-primary/5'
+              )}>
+                <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full mt-0.5', cls)}>
+                  <Icon className="h-3.5 w-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
+                    {n.title}
+                  </p>
+                  {n.user_name && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">User: {n.user_name}</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(n.created_at)}</p>
+                </div>
+                {!n.is_read && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0 mt-2" />}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug">
-                  {n.title ?? n.body ?? 'Notification'}
-                </p>
-                {n.body && n.title && (
-                  <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{n.body}</p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(n.created_at)}</p>
-              </div>
-              {!n.is_read && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0 mt-2" />}
-            </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>
   )
 }
-
 // ── Activities section ────────────────────────────────────────────────────────
 function ActivitiesSection() {
   const { data: recentUsers = [] } = useQuery({
