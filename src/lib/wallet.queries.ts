@@ -326,10 +326,10 @@ export async function approveTopUp(
   // 4. Credit wallet balance atomically
   // We use a raw RPC if available; otherwise update directly.
   // Direct UPDATE is safe here because we use the DB's own addition operator.
-  const { error: creditErr } = await supabase.rpc('increment_wallet_balance', {
+  const { error: creditErr } = await Promise.resolve(supabase.rpc('increment_wallet_balance', {
     p_user_id: sub.user_id,
     p_amount:  amount,
-  }).then(r => r).catch(() => ({ error: { message: 'RPC_NOT_FOUND' } })) as any
+  })).catch(() => ({ error: { message: 'RPC_NOT_FOUND' } })) as any
 
   if (creditErr) {
     // increment_wallet_balance RPC doesn't exist either — do a direct update

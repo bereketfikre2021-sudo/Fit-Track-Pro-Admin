@@ -148,7 +148,7 @@ function FilterBar({ filters, onChange }: { filters: AiFilters; onChange: (f: Ai
         <div className="space-y-2">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Feature</p>
           <PillGroup
-            options={AI_FEATURES as string[]}
+            options={[...AI_FEATURES]}
             value={filters.feature}
             onSelect={(v) => upd({ feature: v })}
             allLabel="All"
@@ -161,7 +161,7 @@ function FilterBar({ filters, onChange }: { filters: AiFilters; onChange: (f: Ai
           <div className="space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Provider</p>
             <PillGroup
-              options={AI_PROVIDERS as string[]}
+              options={[...AI_PROVIDERS]}
               value={filters.provider}
               onSelect={(v) => upd({ provider: v })}
               allLabel="All"
