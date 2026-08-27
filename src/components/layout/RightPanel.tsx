@@ -48,6 +48,9 @@ const ADMIN_EVENT_TYPES = [
   'payment_submitted',
   'payment_approved',
   'payment_rejected',
+  'wallet_topup_submitted',
+  'wallet_topup_approved',
+  'wallet_topup_rejected',
   'subscription_expired',
   'subscription_expiring',
 ]
@@ -64,11 +67,14 @@ interface AdminNotif {
 }
 
 function notifIcon(type: string) {
-  if (type === 'payment_submitted')    return { Icon: ShieldCheck,    cls: 'bg-amber-500/20 text-amber-400' }
-  if (type === 'payment_approved')     return { Icon: CheckCircle2,   cls: 'bg-emerald-500/20 text-emerald-400' }
-  if (type === 'payment_rejected')     return { Icon: XCircle,        cls: 'bg-red-500/20 text-red-400' }
-  if (type === 'subscription_expired') return { Icon: AlertTriangle,  cls: 'bg-red-500/20 text-red-400' }
-  if (type === 'subscription_expiring')return { Icon: Zap,            cls: 'bg-amber-500/20 text-amber-400' }
+  if (type === 'payment_submitted')       return { Icon: ShieldCheck,    cls: 'bg-amber-500/20 text-amber-400' }
+  if (type === 'payment_approved')        return { Icon: CheckCircle2,   cls: 'bg-emerald-500/20 text-emerald-400' }
+  if (type === 'payment_rejected')        return { Icon: XCircle,        cls: 'bg-red-500/20 text-red-400' }
+  if (type === 'wallet_topup_submitted')  return { Icon: ShieldCheck,    cls: 'bg-blue-500/20 text-blue-400' }
+  if (type === 'wallet_topup_approved')   return { Icon: CheckCircle2,   cls: 'bg-emerald-500/20 text-emerald-400' }
+  if (type === 'wallet_topup_rejected')   return { Icon: XCircle,        cls: 'bg-red-500/20 text-red-400' }
+  if (type === 'subscription_expired')    return { Icon: AlertTriangle,  cls: 'bg-red-500/20 text-red-400' }
+  if (type === 'subscription_expiring')   return { Icon: Zap,            cls: 'bg-amber-500/20 text-amber-400' }
   return { Icon: Bell, cls: 'bg-primary/15 text-primary' }
 }
 

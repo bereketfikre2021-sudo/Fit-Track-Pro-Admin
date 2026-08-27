@@ -6,12 +6,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { BarChart3, DollarSign, CreditCard, Dumbbell, Salad,
-  BrainCircuit, Users, TrendingUp } from 'lucide-react'
+  BrainCircuit, Users, TrendingUp, ChevronDown } from 'lucide-react'
 import { PageShell } from '@/components/layout/PageShell'
 import { Tabs, TabPanel } from '@/components/ui/Tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { ReportShell, ReportStat } from '@/components/reports/ReportShell'
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
@@ -30,6 +30,40 @@ const CHART_STYLE  = { background: 'hsl(var(--card))', border: '1px solid hsl(va
 const AXIS_TICK    = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
 const GRID_STROKE  = 'hsl(var(--border))'
 
+// ── Grouped tabs ──────────────────────────────────────────────────────────────
+// 3 tabs replacing 7: Financial | Activity | Growth
+const PAGE_TABS = [
+  { id: 'financial', label: 'Financial',  icon: DollarSign },
+  { id: 'activity',  label: 'Activity',   icon: Dumbbell },
+  { id: 'growth',    label: 'Growth',     icon: TrendingUp },
+]
+
+// ── Accordion section (same pattern as SettingsPage) ─────────────────────────
+function ReportAccordion({ title, icon: Icon, children, defaultOpen = false }: {
+  title: string; icon: React.ElementType; children: React.ReactNode; defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 bg-card hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2.5">
+          <Icon className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-semibold">{title}</span>
+        </div>
+        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="border-t border-border bg-card/50 px-4 pb-4">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 function useReportRange(months = 3) {
   const [range, setRange] = useState<DateRange>(defaultRange(months))
   const setFrom = (v: string) => setRange((r) => ({ ...r, from: v }))
@@ -37,15 +71,7 @@ function useReportRange(months = 3) {
   return { range, setFrom, setTo }
 }
 
-const PAGE_TABS = [
-  { id: 'revenue',      label: 'Revenue',      icon: DollarSign },
-  { id: 'subscription', label: 'Subscriptions',icon: CreditCard },
-  { id: 'workout',      label: 'Workouts',     icon: Dumbbell },
-  { id: 'nutrition',    label: 'Nutrition',    icon: Salad },
-  { id: 'ai',           label: 'AI Usage',     icon: BrainCircuit },
-  { id: 'retention',    label: 'Retention',    icon: Users },
-  { id: 'growth',       label: 'Growth',       icon: TrendingUp },
-]
+// (old PAGE_TABS removed — using grouped PAGE_TABS above)
 
 // ════════════════════════════════════════════════════════════════════
 // REVENUE REPORT
@@ -75,7 +101,7 @@ function RevenueReport() {
       onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <ReportStat label="Total Gross" value={formatCurrency(data.totalGross)} color="text-primary" />
             <ReportStat label="Total Net" value={formatCurrency(data.totalNet)} color="text-emerald-400" />
             <ReportStat label="Total Fees" value={formatCurrency(data.totalFees)} color="text-red-400" />
@@ -154,7 +180,7 @@ function SubscriptionReport() {
       onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <ReportStat label="Active Now" value={data.activeNow.toLocaleString()} color="text-emerald-400" />
             <ReportStat label="Trialing" value={data.trialNow.toLocaleString()} color="text-blue-400" />
             <ReportStat label="New (period)" value={data.newRange.toLocaleString()} color="text-primary" />
@@ -253,7 +279,7 @@ function WorkoutReport() {
       onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <ReportStat label="Completed" value={data.totalCompleted.toLocaleString()} color="text-emerald-400" />
             <ReportStat label="Skipped" value={data.totalSkipped.toLocaleString()} color="text-amber-400" />
             <ReportStat label="Completion rate" value={`${data.completionRate}%`} color={data.completionRate > 70 ? 'text-emerald-400' : 'text-amber-400'} />
@@ -328,7 +354,7 @@ function NutritionReport() {
     <ReportShell title="Nutrition Report" description="Meal log entries, calorie and macro trends." dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo} onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <ReportStat label="Total entries" value={data.totalEntries.toLocaleString()} />
             <ReportStat label="Avg calories" value={`${data.avgCalories} kcal`} />
             <ReportStat label="Avg protein" value={`${data.avgProtein}g`} color="text-blue-400" />
@@ -389,7 +415,7 @@ function AiUsageReport() {
     <ReportShell title="AI Usage Report" description="Request volume, token consumption, errors, and feature breakdown." dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo} onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <ReportStat label="Total requests" value={data.totalRequests.toLocaleString()} />
             <ReportStat label="Successes" value={data.totalSuccesses.toLocaleString()} color="text-emerald-400" />
             <ReportStat label="Success rate" value={`${data.successRate}%`} color={data.successRate > 90 ? 'text-emerald-400' : 'text-amber-400'} />
@@ -452,7 +478,7 @@ function RetentionReport() {
     <ReportShell title="Retention Report" description="7-day and 30-day retention rates for new users." dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo} onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <ReportStat label="Overall 7-day retention" value={`${data.overall7day}%`} sub="Users active within 7 days of signup" color={data.overall7day > 40 ? 'text-emerald-400' : 'text-amber-400'} />
             <ReportStat label="Overall 30-day retention" value={`${data.overall30day}%`} sub="Users active within 30 days of signup" color={data.overall30day > 25 ? 'text-emerald-400' : 'text-amber-400'} />
           </div>
@@ -509,7 +535,7 @@ function GrowthReport() {
     <ReportShell title="Growth Report" description="User acquisition, cumulative growth, and MRR trends." dateFrom={range.from} dateTo={range.to} onDateFrom={setFrom} onDateTo={setTo} onRefetch={refetch} onExportCsv={exportCsv} onExportPdf={exportPdf} isLoading={isLoading} isFetching={isFetching}>
       {data && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <ReportStat label="New users (period)" value={data.totalNewUsers.toLocaleString()} color="text-primary" />
             <ReportStat label="New subscriptions" value={data.totalNewSubs.toLocaleString()} color="text-blue-400" />
             <ReportStat label="Current MRR" value={formatCurrency(data.totalMrr)} color="text-emerald-400" />
@@ -567,22 +593,54 @@ function GrowthReport() {
 // ════════════════════════════════════════════════════════════════════
 
 export function ReportsPage() {
-  const [activeTab, setActiveTab] = useState('revenue')
+  const [activeTab, setActiveTab] = useState('financial')
 
   return (
     <PageShell
       title="Reports"
-      description="Generate, analyze, and export platform-wide reports with interactive charts."
+      description="Platform analytics — financial, activity, and growth insights."
       icon={BarChart3}
     >
       <Tabs tabs={PAGE_TABS} active={activeTab} onChange={setActiveTab} />
-      <TabPanel id="revenue"      active={activeTab}><RevenueReport /></TabPanel>
-      <TabPanel id="subscription" active={activeTab}><SubscriptionReport /></TabPanel>
-      <TabPanel id="workout"      active={activeTab}><WorkoutReport /></TabPanel>
-      <TabPanel id="nutrition"    active={activeTab}><NutritionReport /></TabPanel>
-      <TabPanel id="ai"           active={activeTab}><AiUsageReport /></TabPanel>
-      <TabPanel id="retention"    active={activeTab}><RetentionReport /></TabPanel>
-      <TabPanel id="growth"       active={activeTab}><GrowthReport /></TabPanel>
+
+      {/* ── FINANCIAL: Revenue + Subscriptions ── */}
+      <TabPanel id="financial" active={activeTab}>
+        <div className="space-y-3 pt-4">
+          <ReportAccordion title="Revenue Report" icon={DollarSign} defaultOpen>
+            <RevenueReport />
+          </ReportAccordion>
+          <ReportAccordion title="Subscription Report" icon={CreditCard}>
+            <SubscriptionReport />
+          </ReportAccordion>
+        </div>
+      </TabPanel>
+
+      {/* ── ACTIVITY: Workouts + Nutrition + AI ── */}
+      <TabPanel id="activity" active={activeTab}>
+        <div className="space-y-3 pt-4">
+          <ReportAccordion title="Workout Report" icon={Dumbbell} defaultOpen>
+            <WorkoutReport />
+          </ReportAccordion>
+          <ReportAccordion title="Nutrition Report" icon={Salad}>
+            <NutritionReport />
+          </ReportAccordion>
+          <ReportAccordion title="AI Usage Report" icon={BrainCircuit}>
+            <AiUsageReport />
+          </ReportAccordion>
+        </div>
+      </TabPanel>
+
+      {/* ── GROWTH: Retention + Growth ── */}
+      <TabPanel id="growth" active={activeTab}>
+        <div className="space-y-3 pt-4">
+          <ReportAccordion title="User Retention" icon={Users} defaultOpen>
+            <RetentionReport />
+          </ReportAccordion>
+          <ReportAccordion title="Growth Report" icon={TrendingUp}>
+            <GrowthReport />
+          </ReportAccordion>
+        </div>
+      </TabPanel>
     </PageShell>
   )
 }

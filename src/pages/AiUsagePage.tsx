@@ -34,69 +34,246 @@ const DEFAULT_FILTERS: AiFilters = {
 
 const FEATURE_LABEL: Record<string, string> = {
   exercise_recommendation: 'Exercise Rec.',
-  meal_recommendation: 'Meal Rec.',
+  meal_recommendation:     'Meal Rec.',
   shopping_recommendation: 'Shopping Rec.',
-  chat: 'Chat', analysis: 'Analysis',
-  form_check: 'Form Check', other: 'Other',
+  chat:      'Chat',
+  analysis:  'Analysis',
+  form_check:'Form Check',
+  other:     'Other',
 }
 
 const CHART_COLORS = [
   'hsl(84 81% 44%)', 'hsl(217 91% 60%)', 'hsl(270 91% 65%)',
-  'hsl(25 95% 53%)', 'hsl(142 71% 45%)', 'hsl(0 72% 50%)',
+  'hsl(25 95% 53%)',  'hsl(142 71% 45%)', 'hsl(0 72% 50%)',
 ]
 
 const PLAN_TIERS = ['free', 'pro', 'elite', 'team']
 
 const PAGE_TABS = [
-  { id: 'overview',   label: 'Overview',    icon: BrainCircuit },
-  { id: 'requests',   label: 'Requests',    icon: Zap },
-  { id: 'daily',      label: 'Daily',       icon: TrendingUp },
-  { id: 'monthly',    label: 'Monthly',     icon: TrendingUp },
-  { id: 'features',   label: 'Features',    icon: Zap },
-  { id: 'providers',  label: 'Providers',   icon: BrainCircuit },
-  { id: 'errors',     label: 'Errors',      icon: AlertTriangle },
-  { id: 'top_users',  label: 'Top Users',   icon: Users },
+  { id: 'overview',   label: 'Overview',   icon: BrainCircuit },
+  { id: 'requests',   label: 'Requests',   icon: Zap },
+  { id: 'daily',      label: 'Daily',      icon: TrendingUp },
+  { id: 'monthly',    label: 'Monthly',    icon: TrendingUp },
+  { id: 'features',   label: 'Features',   icon: Zap },
+  { id: 'providers',  label: 'Providers',  icon: BrainCircuit },
+  { id: 'errors',     label: 'Errors',     icon: AlertTriangle },
+  { id: 'top_users',  label: 'Top Users',  icon: Users },
 ]
 
-// ── Shared filter bar ─────────────────────────────────────────────────────────
+// ── PillGroup — reusable pill-button toggle group ─────────────────────────────
+// Defined OUTSIDE FilterBar to avoid React re-creating it on every render.
+
+interface PillGroupProps {
+  options: string[]
+  value: string
+  onSelect: (v: string) => void
+  allLabel: string
+  formatter?: (v: string) => string
+}
+
+function PillGroup({ options, value, onSelect, allLabel, formatter }: PillGroupProps) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <button
+        onClick={() => onSelect('')}
+        className={`h-7 px-3 rounded-full text-xs font-medium transition-colors ${
+          value === ''
+            ? 'bg-primary text-primary-foreground shadow-sm'
+            : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+        }`}
+      >
+        {allLabel}
+      </button>
+      {options.map((o) => (
+        <button
+          key={o}
+          onClick={() => onSelect(o === value ? '' : o)}
+          className={`h-7 px-3 rounded-full text-xs font-medium transition-colors ${
+            value === o
+              ? 'bg-primary text-primary-foreground shadow-sm'
+              : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+          }`}
+        >
+          {formatter ? formatter(o) : o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Categorized Filter Bar ────────────────────────────────────────────────────
+// Four groups: Search | Feature | Provider+Status+Plan | Date Range
+// Matches the card-with-label style used in Reports and Settings pages.
 
 function FilterBar({ filters, onChange }: { filters: AiFilters; onChange: (f: AiFilters) => void }) {
   const upd = (patch: Partial<AiFilters>) => onChange({ ...filters, ...patch })
+  const hasActive = Object.values(filters).some((v) => v !== '')
 
   return (
-    <div className="flex flex-wrap gap-2 items-center">
-      <input type="search" placeholder="Search user name…" value={filters.search}
-        onChange={(e) => upd({ search: e.target.value })}
-        className="flex h-9 w-40 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">Filters</p>
+        {hasActive && (
+          <button
+            onClick={() => onChange(DEFAULT_FILTERS)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
 
-      {[
-        { key: 'feature', label: 'Feature', opts: ['', ...AI_FEATURES] },
-        { key: 'provider', label: 'Provider', opts: ['', ...AI_PROVIDERS] },
-        { key: 'success', label: 'Status', opts: ['', 'true', 'false'] },
-        { key: 'plan_tier', label: 'Plan', opts: ['', ...PLAN_TIERS] },
-      ].map(({ key, opts }) => (
-        <select key={key} value={(filters as unknown as Record<string, string>)[key]}
-          onChange={(e) => upd({ [key]: e.target.value } as Partial<AiFilters>)}
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          {opts.map((o) => (
-            <option key={o} value={o}>
-              {key === 'feature' ? (o ? FEATURE_LABEL[o] ?? o : 'All features')
-               : key === 'success' ? (o === '' ? 'All status' : o === 'true' ? 'Success' : 'Failed')
-               : key === 'plan_tier' ? (o || 'All plans')
-               : (o ? o.charAt(0).toUpperCase() + o.slice(1) : `All ${key}s`)}
-            </option>
-          ))}
-        </select>
-      ))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
 
-      <input type="date" value={filters.date_from} onChange={(e) => upd({ date_from: e.target.value })}
-        className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-      <span className="text-muted-foreground text-xs">to</span>
-      <input type="date" value={filters.date_to} onChange={(e) => upd({ date_to: e.target.value })}
-        className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        {/* ── Group 1: Search ── */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Search</p>
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
+              fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="search"
+              placeholder="User name…"
+              value={filters.search}
+              onChange={(e) => upd({ search: e.target.value })}
+              className="flex h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+        </div>
 
-      {Object.values(filters).some((v) => v !== '') && (
-        <Button size="sm" variant="ghost" onClick={() => onChange(DEFAULT_FILTERS)}>Clear</Button>
+        {/* ── Group 2: Feature ── */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Feature</p>
+          <PillGroup
+            options={AI_FEATURES as string[]}
+            value={filters.feature}
+            onSelect={(v) => upd({ feature: v })}
+            allLabel="All"
+            formatter={(v) => FEATURE_LABEL[v] ?? v}
+          />
+        </div>
+
+        {/* ── Group 3: Provider / Status / Plan ── */}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Provider</p>
+            <PillGroup
+              options={AI_PROVIDERS as string[]}
+              value={filters.provider}
+              onSelect={(v) => upd({ provider: v })}
+              allLabel="All"
+              formatter={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</p>
+            <PillGroup
+              options={['true', 'false']}
+              value={filters.success}
+              onSelect={(v) => upd({ success: v })}
+              allLabel="All"
+              formatter={(v) => (v === 'true' ? 'Success' : 'Failed')}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Plan</p>
+            <PillGroup
+              options={PLAN_TIERS}
+              value={filters.plan_tier}
+              onSelect={(v) => upd({ plan_tier: v })}
+              allLabel="All"
+              formatter={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+            />
+          </div>
+        </div>
+
+        {/* ── Group 4: Date Range ── */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Range</p>
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-muted-foreground">From</label>
+            <input type="date" value={filters.date_from}
+              onChange={(e) => upd({ date_from: e.target.value })}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-muted-foreground">To</label>
+            <input type="date" value={filters.date_to}
+              onChange={(e) => upd({ date_to: e.target.value })}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+          </div>
+          {/* Quick date presets */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {[
+              { label: 'Today', days: 0 },
+              { label: '7d',    days: 7 },
+              { label: '30d',   days: 30 },
+              { label: '90d',   days: 90 },
+            ].map(({ label, days }) => {
+              const today = new Date().toISOString().slice(0, 10)
+              const from  = new Date()
+              from.setDate(from.getDate() - days)
+              const fromStr = from.toISOString().slice(0, 10)
+              const isActive = days === 0
+                ? filters.date_from === today && filters.date_to === today
+                : filters.date_from === fromStr && filters.date_to === ''
+              return (
+                <button key={label}
+                  onClick={() => upd(days === 0
+                    ? { date_from: today, date_to: today }
+                    : { date_from: fromStr, date_to: '' }
+                  )}
+                  className={`h-6 px-2.5 rounded-full text-[10px] font-medium transition-colors ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Active filter chips */}
+      {hasActive && (
+        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
+          {filters.search && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium">
+              "{filters.search}" <button onClick={() => upd({ search: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+          {filters.feature && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium">
+              {FEATURE_LABEL[filters.feature] ?? filters.feature} <button onClick={() => upd({ feature: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+          {filters.provider && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium capitalize">
+              {filters.provider} <button onClick={() => upd({ provider: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+          {filters.success && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium">
+              {filters.success === 'true' ? 'Success only' : 'Failures only'} <button onClick={() => upd({ success: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+          {filters.plan_tier && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium capitalize">
+              {filters.plan_tier} plan <button onClick={() => upd({ plan_tier: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+          {(filters.date_from || filters.date_to) && (
+            <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full bg-primary/15 text-primary text-[11px] font-medium">
+              {filters.date_from}{filters.date_from && filters.date_to ? ' → ' : ''}{filters.date_to} <button onClick={() => upd({ date_from: '', date_to: '' })} className="hover:opacity-60">×</button>
+            </span>
+          )}
+        </div>
       )}
     </div>
   )

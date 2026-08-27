@@ -42,16 +42,18 @@ function StatCard({
 }) {
   const isPositive = trend?.startsWith('+') ?? true
   return (
-    <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-2">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="text-2xl font-bold text-foreground tabular-nums leading-none">{value}</p>
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2 overflow-hidden min-w-0">
+      <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
+      <p className="text-xl sm:text-2xl font-bold text-foreground tabular-nums leading-none truncate" title={value}>
+        {value}
+      </p>
       {trend && (
         <div className={`flex items-center gap-1 text-xs font-medium ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
           {isPositive
-            ? <TrendingUp className="h-3.5 w-3.5" />
-            : <TrendingDown className="h-3.5 w-3.5" />}
-          <span>{trend}</span>
-          {trendLabel && <span className="text-muted-foreground font-normal ml-0.5">{trendLabel}</span>}
+            ? <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+            : <TrendingDown className="h-3.5 w-3.5 shrink-0" />}
+          <span className="truncate">{trend}</span>
+          {trendLabel && <span className="text-muted-foreground font-normal ml-0.5 hidden sm:inline truncate">{trendLabel}</span>}
         </div>
       )}
     </div>
@@ -90,15 +92,15 @@ function SalesOverviewCard({ stats, loading }: { stats: any; loading: boolean })
         </button>
       </div>
 
-      <div className="flex items-stretch gap-8">
-        {/* Large donut — thick ring like screenshot */}
-        <div className="relative shrink-0" style={{ width: 180, height: 180 }}>
-          <ResponsiveContainer width={180} height={180}>
+      <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-6 sm:gap-8">
+        {/* Large donut */}
+        <div className="relative shrink-0" style={{ width: 160, height: 160 }}>
+          <ResponsiveContainer width={160} height={160}>
             <PieChart>
               <Pie
                 data={donutData}
                 cx="50%" cy="50%"
-                innerRadius={58} outerRadius={82}
+                innerRadius={50} outerRadius={72}
                 paddingAngle={3}
                 dataKey="value"
                 startAngle={90} endAngle={-270}
@@ -110,38 +112,37 @@ function SalesOverviewCard({ stats, loading }: { stats: any; loading: boolean })
               </Pie>
             </PieChart>
           </ResponsiveContainer>
-          {/* Center text — exactly like "102k / Weekly Visits" in screenshot */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-3xl font-bold text-foreground tabular-nums leading-none">
+            <span className="text-xl font-bold text-foreground tabular-nums leading-none">
               {loading ? '—' : fmt(total)}
             </span>
-            <span className="text-xs text-muted-foreground mt-1 text-center leading-tight">
+            <span className="text-[10px] text-muted-foreground mt-1 text-center leading-tight">
               Total<br />Users
             </span>
           </div>
         </div>
 
         {/* Right side: revenue pill + 2x2 breakdown grid */}
-        <div className="flex-1 flex flex-col justify-between gap-4">
-          {/* Revenue pill — matches "Number of Sales / $71,020" */}
-          <div className="flex items-center gap-3 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2.5">
+        <div className="flex-1 flex flex-col justify-between gap-4 w-full">
+          {/* Revenue pill */}
+          <div className="flex items-center gap-3 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2.5 min-w-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/20 shrink-0">
-              <span className="text-primary font-bold text-sm">ETB</span>
+              <span className="text-primary font-bold text-xs">ETB</span>
             </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground">Monthly Revenue</p>
-              <p className="text-base font-bold text-foreground tabular-nums leading-tight">
+            <div className="min-w-0">
+              <p className="text-[11px] text-muted-foreground truncate">Monthly Revenue</p>
+              <p className="text-sm sm:text-base font-bold text-foreground tabular-nums leading-tight truncate">
                 {loading ? '—' : formatCurrency(revenue)}
               </p>
             </div>
           </div>
 
-          {/* 2×2 breakdown grid — matches Electronic/Furniture/Clothes/Shoes */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          {/* 2×2 breakdown grid */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             {breakdown.map(b => (
               <div key={b.label} className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full shrink-0" style={{ background: b.dot }} />
-                <div>
+                <div className="min-w-0">
                   <p className="text-[11px] text-muted-foreground">{b.label}</p>
                   <p className="text-sm font-semibold text-foreground tabular-nums">
                     {loading ? '—' : b.value.toLocaleString()}
@@ -163,15 +164,14 @@ function MetricCard({
   label: string; value: string; sub?: string; iconBg: string; iconColor: string
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2 flex-1">
-      {/* Small colored icon square — like screenshot top-left of each card */}
-      <div className={`flex h-7 w-7 items-center justify-center rounded-md ${iconBg}`}>
+    <div className="rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col gap-2 flex-1 overflow-hidden min-w-0">
+      <div className={`flex h-7 w-7 items-center justify-center rounded-md shrink-0 ${iconBg}`}>
         <div className={`h-3 w-3 rounded-sm ${iconColor}`} />
       </div>
-      <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-xl font-bold text-foreground tabular-nums leading-tight">{value}</p>
-        {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground truncate">{label}</p>
+        <p className="text-lg sm:text-xl font-bold text-foreground tabular-nums leading-tight truncate" title={value}>{value}</p>
+        {sub && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{sub}</p>}
       </div>
     </div>
   )

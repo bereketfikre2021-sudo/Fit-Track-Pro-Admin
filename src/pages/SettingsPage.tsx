@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react'
 import {
   Settings, Zap, AlertTriangle, CreditCard, BrainCircuit,
   Dumbbell, HardDrive, Bell, HelpCircle, FileText,
-  Shield, Save, Plus, Trash2, GripVertical, RefreshCw,
+  Shield, Save, Plus, Trash2, GripVertical, RefreshCw, ChevronDown,
 } from 'lucide-react'
 import { PageShell } from '@/components/layout/PageShell'
 import { Tabs, TabPanel } from '@/components/ui/Tabs'
@@ -31,18 +31,37 @@ import {
 } from '@/lib/settings.queries'
 
 const PAGE_TABS = [
-  { id: 'app',           label: 'App Settings',     icon: Settings },
-  { id: 'features',      label: 'Feature Flags',    icon: Zap },
-  { id: 'maintenance',   label: 'Maintenance',      icon: AlertTriangle },
-  { id: 'pricing',       label: 'Pricing',          icon: CreditCard },
-  { id: 'ai_limits',     label: 'AI Limits',        icon: BrainCircuit },
-  { id: 'workout_limits',label: 'Workout Limits',   icon: Dumbbell },
-  { id: 'storage',       label: 'Storage Limits',   icon: HardDrive },
-  { id: 'notifications', label: 'Notifications',    icon: Bell },
-  { id: 'faq',           label: 'FAQ',              icon: HelpCircle },
-  { id: 'terms',         label: 'Terms',            icon: FileText },
-  { id: 'privacy',       label: 'Privacy',          icon: Shield },
+  { id: 'general',  label: 'General',   icon: Settings },
+  { id: 'plans',    label: 'Plans & Limits', icon: CreditCard },
+  { id: 'content',  label: 'Content',   icon: FileText },
 ]
+
+// ── Accordion section ─────────────────────────────────────────────────────────
+function AccordionSection({ title, icon: Icon, children, defaultOpen = false }: {
+  title: string; icon: React.ElementType; children: React.ReactNode; defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 bg-card hover:bg-muted/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2.5">
+          <Icon className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-semibold">{title}</span>
+        </div>
+        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="border-t border-border bg-card/50 px-5 pb-5 pt-4">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Shared save button row ────────────────────────────────────────────────────
 
@@ -343,27 +362,14 @@ function PricingTab() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <NumInput label="Monthly price (USD)" value={Number(get(plan, 'price_monthly_usd')) || 0}
+                <NumInput label="Monthly price (ETB)" value={Number(get(plan, 'price_monthly_usd')) || 0}
                   onChange={(v) => upd(plan.id, { price_monthly_usd: v })} min={0} />
-                <NumInput label="Yearly price (USD)" value={Number(get(plan, 'price_yearly_usd')) || 0}
+                <NumInput label="Yearly price (ETB)" value={Number(get(plan, 'price_yearly_usd')) || 0}
                   onChange={(v) => upd(plan.id, { price_yearly_usd: v })} min={0} />
                 <NumInput label="AI calls/day" value={Number(get(plan, 'max_ai_calls_day')) || 0}
                   onChange={(v) => upd(plan.id, { max_ai_calls_day: v })} min={0} />
                 <NumInput label="Max devices" value={Number(get(plan, 'max_devices')) || 1}
                   onChange={(v) => upd(plan.id, { max_devices: v })} min={1} />
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium">Stripe monthly price ID</label>
-                  <input value={String(get(plan, 'stripe_price_id_monthly') ?? '')}
-                    onChange={(e) => upd(plan.id, { stripe_price_id_monthly: e.target.value || null })}
-                    placeholder="price_xxx" className="flex h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium">Stripe yearly price ID</label>
-                  <input value={String(get(plan, 'stripe_price_id_yearly') ?? '')}
-                    onChange={(e) => upd(plan.id, { stripe_price_id_yearly: e.target.value || null })}
-                    placeholder="price_xxx" className="flex h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                </div>
 
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5">Features</p>
@@ -710,7 +716,7 @@ function RichTextTab({
 // ════════════════════════════════════════════════════════════════════
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('app')
+  const [activeTab, setActiveTab] = useState('general')
   const { data: settings = {}, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['all-settings'],
     queryFn: fetchAllSettings,
@@ -719,7 +725,7 @@ export function SettingsPage() {
   return (
     <PageShell
       title="Settings"
-      description="Configure app settings, feature flags, limits, and content."
+      description="Configure app, plans, limits, and content."
       icon={Settings}
       actions={
         <Button variant="outline" size="sm" leftIcon={<RefreshCw className="h-3.5 w-3.5" />} loading={isFetching} onClick={() => refetch()}>
@@ -733,24 +739,59 @@ export function SettingsPage() {
         <>
           <Tabs tabs={PAGE_TABS} active={activeTab} onChange={setActiveTab} />
 
-          <TabPanel id="app"            active={activeTab}><AppSettingsTab settings={settings} /></TabPanel>
-          <TabPanel id="features"       active={activeTab}><FeatureFlagsTab settings={settings} /></TabPanel>
-          <TabPanel id="maintenance"    active={activeTab}><MaintenanceTab settings={settings} /></TabPanel>
-          <TabPanel id="pricing"        active={activeTab}><PricingTab /></TabPanel>
-          <TabPanel id="ai_limits"      active={activeTab}><AiLimitsTab settings={settings} /></TabPanel>
-          <TabPanel id="workout_limits" active={activeTab}><WorkoutLimitsTab settings={settings} /></TabPanel>
-          <TabPanel id="storage"        active={activeTab}><StorageLimitsTab settings={settings} /></TabPanel>
-          <TabPanel id="notifications"  active={activeTab}><NotificationDefaultsTab settings={settings} /></TabPanel>
-          <TabPanel id="faq"            active={activeTab}><FaqTab settings={settings} /></TabPanel>
-          <TabPanel id="terms"          active={activeTab}>
-            <RichTextTab settingKey={SETTING_KEYS.TERMS_OF_SERVICE} title="Terms of Service"
-              description="Terms of Service content shown to users" settings={settings}
-              placeholder="# Terms of Service&#10;&#10;Last updated: ...&#10;&#10;## 1. Acceptance of Terms&#10;..." />
+          {/* ── GENERAL TAB ── */}
+          <TabPanel id="general" active={activeTab}>
+            <div className="space-y-3 pt-4 max-w-3xl">
+              <AccordionSection title="App Settings" icon={Settings} defaultOpen>
+                <AppSettingsTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Feature Flags" icon={Zap}>
+                <FeatureFlagsTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Maintenance Mode" icon={AlertTriangle}>
+                <MaintenanceTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Notification Defaults" icon={Bell}>
+                <NotificationDefaultsTab settings={settings} />
+              </AccordionSection>
+            </div>
           </TabPanel>
-          <TabPanel id="privacy"        active={activeTab}>
-            <RichTextTab settingKey={SETTING_KEYS.PRIVACY_POLICY} title="Privacy Policy"
-              description="Privacy Policy content shown to users" settings={settings}
-              placeholder="# Privacy Policy&#10;&#10;Last updated: ...&#10;&#10;## 1. Information We Collect&#10;..." />
+
+          {/* ── PLANS & LIMITS TAB ── */}
+          <TabPanel id="plans" active={activeTab}>
+            <div className="space-y-3 pt-4">
+              <AccordionSection title="Subscription Plans & Pricing (ETB)" icon={CreditCard} defaultOpen>
+                <PricingTab />
+              </AccordionSection>
+              <AccordionSection title="AI Call Limits" icon={BrainCircuit}>
+                <AiLimitsTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Workout & History Limits" icon={Dumbbell}>
+                <WorkoutLimitsTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Storage Limits" icon={HardDrive}>
+                <StorageLimitsTab settings={settings} />
+              </AccordionSection>
+            </div>
+          </TabPanel>
+
+          {/* ── CONTENT TAB ── */}
+          <TabPanel id="content" active={activeTab}>
+            <div className="space-y-3 pt-4 max-w-3xl">
+              <AccordionSection title="FAQ" icon={HelpCircle} defaultOpen>
+                <FaqTab settings={settings} />
+              </AccordionSection>
+              <AccordionSection title="Terms of Service" icon={FileText}>
+                <RichTextTab settingKey={SETTING_KEYS.TERMS_OF_SERVICE} title="Terms of Service"
+                  description="Terms of Service content shown to users" settings={settings}
+                  placeholder="# Terms of Service&#10;&#10;Last updated: ...&#10;&#10;## 1. Acceptance of Terms&#10;..." />
+              </AccordionSection>
+              <AccordionSection title="Privacy Policy" icon={Shield}>
+                <RichTextTab settingKey={SETTING_KEYS.PRIVACY_POLICY} title="Privacy Policy"
+                  description="Privacy Policy content shown to users" settings={settings}
+                  placeholder="# Privacy Policy&#10;&#10;Last updated: ...&#10;&#10;## 1. Information We Collect&#10;..." />
+              </AccordionSection>
+            </div>
           </TabPanel>
         </>
       )}

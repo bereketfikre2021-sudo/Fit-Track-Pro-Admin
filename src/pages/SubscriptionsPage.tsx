@@ -366,13 +366,78 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
   const [editTarget, setEditTarget] = useState<SubscriptionPlan | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Duration pricing state — keyed by duration string
+  const [durationPrices, setDurationPrices] = useState<Record<string, { price_etb: string; discount_pct: string; id?: string }>>({})
+  const [durationPricesLoading, setDurationPricesLoading] = useState(false)
+
+  const DURATIONS = [
+    { duration: '1_month',   months: 1,  label: '1 Month' },
+    { duration: '3_months',  months: 3,  label: '3 Months' },
+    { duration: '6_months',  months: 6,  label: '6 Months' },
+    { duration: '12_months', months: 12, label: '12 Months (1 Year)' },
+  ]
+
   const fmtEtb = (n: number) => `ETB ${n.toLocaleString('en-ET', { minimumFractionDigits: 0 })}`
+
+  // Load existing duration prices when edit modal opens
+  const openEdit = async (plan: SubscriptionPlan) => {
+    setEditTarget({ ...plan })
+    setDurationPricesLoading(true)
+    setDurationPrices({})
+    try {
+      const { data } = await supabase
+        .from('subscription_purchase_options')
+        .select('id, duration, duration_months, price_etb, discount_pct')
+        .eq('plan_id', plan.id)
+        .order('display_order')
+
+      const priceMap: Record<string, { price_etb: string; discount_pct: string; id?: string }> = {}
+
+      // Pre-fill from DB rows
+      for (const row of data ?? []) {
+        priceMap[row.duration] = {
+          id:           row.id,
+          price_etb:    String(row.price_etb ?? ''),
+          discount_pct: String(row.discount_pct ?? '0'),
+        }
+      }
+
+      // Fill in missing durations with calculated defaults (monthly × months × discount)
+      const monthly = Number(plan.price_monthly_usd)
+      for (const d of DURATIONS) {
+        if (!priceMap[d.duration]) {
+          const discountMap: Record<string, number> = {
+            '1_month': 0, '3_months': 5, '6_months': 10, '12_months': 15
+          }
+          const disc = discountMap[d.duration] ?? 0
+          priceMap[d.duration] = {
+            price_etb:    String(Math.round(monthly * d.months * (1 - disc / 100) * 100) / 100),
+            discount_pct: String(disc),
+          }
+        }
+      }
+      setDurationPrices(priceMap)
+    } catch {
+      // If table doesn't exist yet, still open modal with calculated defaults
+      const monthly = Number(plan.price_monthly_usd)
+      const defaults: Record<string, { price_etb: string; discount_pct: string }> = {
+        '1_month':   { price_etb: String(monthly),       discount_pct: '0' },
+        '3_months':  { price_etb: String(Math.round(monthly * 3 * 0.95 * 100)/100), discount_pct: '5' },
+        '6_months':  { price_etb: String(Math.round(monthly * 6 * 0.90 * 100)/100), discount_pct: '10' },
+        '12_months': { price_etb: String(Math.round(monthly * 12 * 0.85 * 100)/100), discount_pct: '15' },
+      }
+      setDurationPrices(defaults)
+    } finally {
+      setDurationPricesLoading(false)
+    }
+  }
 
   const save = async () => {
     if (!editTarget) return
     setSaving(true)
     try {
-      const { error } = await supabase.from('subscription_plans').update({
+      // 1. Update base plan
+      const { error: planErr } = await supabase.from('subscription_plans').update({
         price_monthly_usd: editTarget.price_monthly_usd,
         price_yearly_usd:  editTarget.price_yearly_usd,
         max_ai_calls_day:  editTarget.max_ai_calls_day,
@@ -380,9 +445,54 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
         is_active:         editTarget.is_active,
         updated_at:        new Date().toISOString(),
       }).eq('id', editTarget.id)
-      if (error) throw error
-      toast.success('Plan updated')
+      if (planErr) throw planErr
+
+      // 2. Upsert duration pricing into subscription_purchase_options
+      //    (table may not exist if migration hasn't run — skip gracefully)
+      try {
+        const discountOrder: Record<string, number> = {
+          '1_month': 1, '3_months': 2, '6_months': 3, '12_months': 4
+        }
+        const monthsMap: Record<string, number> = {
+          '1_month': 1, '3_months': 3, '6_months': 6, '12_months': 12
+        }
+
+        for (const d of DURATIONS) {
+          const entry = durationPrices[d.duration]
+          if (!entry) continue
+          const priceVal = parseFloat(entry.price_etb)
+          const discVal  = parseInt(entry.discount_pct) || 0
+          if (isNaN(priceVal) || priceVal < 0) continue
+
+          const upsertRow = {
+            plan_id:        editTarget.id,
+            duration:       d.duration,
+            duration_months: monthsMap[d.duration],
+            price_etb:      priceVal,
+            discount_pct:   discVal,
+            currency:       'ETB',
+            is_active:      true,
+            display_order:  discountOrder[d.duration] ?? 1,
+            updated_at:     new Date().toISOString(),
+          }
+
+          // If we have an existing id, include it for upsert
+          if (entry.id) {
+            await supabase.from('subscription_purchase_options')
+              .upsert({ id: entry.id, ...upsertRow }, { onConflict: 'id' })
+          } else {
+            await supabase.from('subscription_purchase_options')
+              .upsert(upsertRow, { onConflict: 'plan_id,duration' })
+          }
+        }
+      } catch {
+        // Table may not exist yet — base plan was still saved
+        console.warn('subscription_purchase_options not available yet')
+      }
+
+      toast.success('Plan and pricing updated')
       qc.invalidateQueries({ queryKey: ['all-plans'] })
+      qc.invalidateQueries({ queryKey: ['purchase-options-admin'] })
       setEditTarget(null)
     } catch (e) { toast.error((e as Error).message) }
     finally { setSaving(false) }
@@ -477,7 +587,7 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
                   {/* Edit button */}
                   <PermissionGate permission="settings.edit">
                     <button
-                      onClick={() => setEditTarget({ ...plan })}
+                      onClick={() => openEdit(plan)}
                       className={`w-full h-9 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] ${cfg.btnCls}`}
                     >
                       Edit Plan
@@ -490,25 +600,102 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
         })}
       </div>
 
-      {/* Edit modal */}
+      {/* ── Edit modal ─────────────────────────────────────────────────────── */}
       <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title={`Edit ${editTarget?.name} Plan`} size="sm">
         {editTarget && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Monthly price (ETB)" type="number" min="0" value={editTarget.price_monthly_usd}
+          <div className="space-y-5">
+
+            {/* Base plan settings */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Plan Settings</p>
+              <Input label="Base monthly price (ETB)" type="number" min="0" value={editTarget.price_monthly_usd}
                 onChange={(e) => setEditTarget({ ...editTarget, price_monthly_usd: parseFloat(e.target.value) || 0 })} />
-              <Input label="Yearly price (ETB)" type="number" min="0" value={editTarget.price_yearly_usd}
-                onChange={(e) => setEditTarget({ ...editTarget, price_yearly_usd: parseFloat(e.target.value) || 0 })} />
+              <Input label="AI calls per day" type="number" min="0" value={editTarget.max_ai_calls_day}
+                onChange={(e) => setEditTarget({ ...editTarget, max_ai_calls_day: parseInt(e.target.value) || 0 })} />
+              <Input label="Max devices" type="number" min="1" value={editTarget.max_devices}
+                onChange={(e) => setEditTarget({ ...editTarget, max_devices: parseInt(e.target.value) || 1 })} />
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={editTarget.is_active}
+                  onChange={(e) => setEditTarget({ ...editTarget, is_active: e.target.checked })} />
+                Plan is active (visible to users)
+              </label>
             </div>
-            <Input label="AI calls per day" type="number" min="0" value={editTarget.max_ai_calls_day}
-              onChange={(e) => setEditTarget({ ...editTarget, max_ai_calls_day: parseInt(e.target.value) || 0 })} />
-            <Input label="Max devices" type="number" min="1" value={editTarget.max_devices}
-              onChange={(e) => setEditTarget({ ...editTarget, max_devices: parseInt(e.target.value) || 1 })} />
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={editTarget.is_active}
-                onChange={(e) => setEditTarget({ ...editTarget, is_active: e.target.checked })} />
-              Plan is active (visible to users)
-            </label>
+
+            {/* Duration pricing */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Duration Pricing
+                <span className="ml-1 font-normal normal-case text-muted-foreground/60">— shown to users as billing options</span>
+              </p>
+
+              {durationPricesLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3,4].map(i => <div key={i} className="h-10 rounded-lg bg-muted/40 animate-pulse" />)}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/30 border-b border-border">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Duration</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Total Price (ETB)</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Discount %</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Per Month</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {DURATIONS.map(d => {
+                        const entry = durationPrices[d.duration] ?? { price_etb: '', discount_pct: '0' }
+                        const priceNum = parseFloat(entry.price_etb) || 0
+                        const perMonth = d.months > 0 ? Math.round((priceNum / d.months) * 100) / 100 : priceNum
+                        return (
+                          <tr key={d.duration} className="hover:bg-muted/10">
+                            <td className="px-3 py-2.5 font-medium text-xs whitespace-nowrap">{d.label}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={entry.price_etb}
+                                onChange={e => setDurationPrices(prev => ({
+                                  ...prev,
+                                  [d.duration]: { ...prev[d.duration], price_etb: e.target.value }
+                                }))}
+                                className="w-28 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="99"
+                                  step="1"
+                                  value={entry.discount_pct}
+                                  onChange={e => setDurationPrices(prev => ({
+                                    ...prev,
+                                    [d.duration]: { ...prev[d.duration], discount_pct: e.target.value }
+                                  }))}
+                                  className="w-16 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
+                                />
+                                <span className="text-xs text-muted-foreground">%</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-muted-foreground tabular-nums">
+                              {priceNum > 0 ? `ETB ${perMonth.toLocaleString('en-ET', { minimumFractionDigits: 2 })}` : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                These prices are shown to users in the app. The discount % is purely informational (displayed as a badge).
+              </p>
+            </div>
+
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setEditTarget(null)} disabled={saving}>Cancel</Button>
               <Button onClick={save} loading={saving}>Save Changes</Button>

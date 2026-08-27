@@ -190,6 +190,26 @@ export async function approveSubmission(
   adminId: string,
   note?: string
 ): Promise<void> {
+  // Guard: if this is a wallet top-up submission (identified by note marker or purpose column),
+  // route to the wallet approval path instead of activating a subscription.
+  try {
+    const { data: sub } = await supabase
+      .from('payment_submissions')
+      .select('note, purpose')
+      .eq('id', submissionId)
+      .maybeSingle()
+
+    const isWalletTopup =
+      sub?.purpose === 'wallet_topup' ||
+      (sub?.note && String(sub.note).includes('[WALLET_TOPUP]'))
+
+    if (isWalletTopup) {
+      const { approveTopUp } = await import('./wallet.queries')
+      await approveTopUp(submissionId, adminId, note)
+      return
+    }
+  } catch { /* if detection fails, fall through to standard RPC */ }
+
   const { error } = await supabase.rpc('approve_payment_submission', {
     p_submission_id: submissionId,
     p_admin_id: adminId,

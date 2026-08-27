@@ -125,6 +125,7 @@ export interface UserAuditLog {
   old_values: Record<string, unknown> | null
   new_values: Record<string, unknown> | null
   ip_address: string | null
+  user_agent: string | null
   severity: string | null
   created_at: string
 }
@@ -294,7 +295,7 @@ export async function fetchUserBodyStats(userId: string): Promise<UserBodyStats[
     .eq('user_id', userId)
     .order('log_date', { ascending: false })
     .limit(30)
-  if (error) throw error
+  if (error) { console.warn('[fetchUserBodyStats]', error.message); return [] }
   return (data ?? []) as UserBodyStats[]
 }
 
@@ -304,20 +305,147 @@ export async function fetchUserWorkouts(userId: string): Promise<UserWorkoutSess
     .select('id, session_date, day_of_week, completed_count, total_count, skipped, calories_burned, perceived_effort, mood')
     .eq('user_id', userId)
     .order('session_date', { ascending: false })
-    .limit(50)
-  if (error) throw error
+    .limit(100)
+
+  if (error) {
+    console.warn('[fetchUserWorkouts] Error (likely RLS — run migration 20240310000000):', error.message)
+    return []
+  }
   return (data ?? []) as UserWorkoutSession[]
 }
 
-export async function fetchUserMealLogs(userId: string): Promise<UserMealLog[]> {
+// ── Device / login activity ───────────────────────────────────────────────────
+
+export interface UserDevice {
+  id: string
+  user_agent: string | null
+  ip_address: string | null
+  created_at: string
+  // parsed
+  browser: string
+  os: string
+  device_type: 'Mobile' | 'Tablet' | 'Desktop' | 'Unknown'
+}
+
+function parseUserAgent(ua: string | null): { browser: string; os: string; device_type: 'Mobile' | 'Tablet' | 'Desktop' | 'Unknown' } {
+  if (!ua) return { browser: 'Unknown', os: 'Unknown', device_type: 'Unknown' }
+
+  // Device type
+  let device_type: UserDevice['device_type'] = 'Desktop'
+  if (/tablet|ipad|playbook|silk/i.test(ua)) device_type = 'Tablet'
+  else if (/mobile|android|iphone|ipod|blackberry|opera mini|windows phone/i.test(ua)) device_type = 'Mobile'
+
+  // OS
+  let os = 'Unknown'
+  if (/windows nt 10/i.test(ua))      os = 'Windows 10/11'
+  else if (/windows nt 6/i.test(ua))  os = 'Windows 7/8'
+  else if (/windows/i.test(ua))       os = 'Windows'
+  else if (/macintosh|mac os x/i.test(ua)) os = 'macOS'
+  else if (/iphone.*os (\d+)/i.test(ua)) { const m = ua.match(/iphone.*os (\d+)/i); os = `iOS ${m?.[1] ?? ''}` }
+  else if (/ipad.*os (\d+)/i.test(ua))   { const m = ua.match(/ipad.*os (\d+)/i);   os = `iPadOS ${m?.[1] ?? ''}` }
+  else if (/android (\d+)/i.test(ua))    { const m = ua.match(/android (\d+)/i);    os = `Android ${m?.[1] ?? ''}` }
+  else if (/linux/i.test(ua))         os = 'Linux'
+
+  // Browser
+  let browser = 'Unknown'
+  if (/edg\//i.test(ua))              browser = 'Edge'
+  else if (/opr\//i.test(ua))         browser = 'Opera'
+  else if (/chrome\/(\d+)/i.test(ua)) { const m = ua.match(/chrome\/(\d+)/i); browser = `Chrome ${m?.[1] ?? ''}` }
+  else if (/firefox\/(\d+)/i.test(ua)){ const m = ua.match(/firefox\/(\d+)/i); browser = `Firefox ${m?.[1] ?? ''}` }
+  else if (/safari\/(\d+)/i.test(ua)) browser = 'Safari'
+  else if (/msie|trident/i.test(ua))  browser = 'Internet Explorer'
+
+  return { browser, os, device_type }
+}
+
+export async function fetchUserDevices(userId: string): Promise<UserDevice[]> {
+  // Pull from audit_logs where action = 'login' and user_agent is present
   const { data, error } = await supabase
-    .from('meal_logs')
-    .select('id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g, quantity')
+    .from('audit_logs')
+    .select('id, user_agent, ip_address, created_at')
+    .eq('user_id', userId)
+    .eq('action', 'login')
+    .not('user_agent', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) {
+    console.warn('[fetchUserDevices]', error.message)
+    return []
+  }
+
+  // Deduplicate by user_agent (keep most recent per UA)
+  const seen = new Set<string>()
+  const devices: UserDevice[] = []
+  for (const row of data ?? []) {
+    const ua = row.user_agent ?? ''
+    if (seen.has(ua)) continue
+    seen.add(ua)
+    devices.push({
+      id: row.id,
+      user_agent: ua,
+      ip_address: row.ip_address,
+      created_at: row.created_at,
+      ...parseUserAgent(ua),
+    })
+  }
+  return devices
+}
+
+export async function fetchUserMealLogs(userId: string): Promise<UserMealLog[]> {
+  // The daily food diary is stored in nutrition_logs (not meal_logs).
+  // meal_plans holds the weekly template — we read from nutrition_logs first,
+  // then fall back to meal_plans so admins always see something useful.
+
+  const { data: nlData, error: nlErr } = await supabase
+    .from('nutrition_logs')
+    .select('id, log_date, meal_slot, food_name, calories, protein_g, carbs_g, fat_g, quantity:serving_size')
     .eq('user_id', userId)
     .order('log_date', { ascending: false })
-    .limit(50)
-  if (error) throw error
-  return (data ?? []) as UserMealLog[]
+    .limit(100)
+
+  if (!nlErr && nlData && nlData.length > 0) {
+    return nlData.map((r: any) => ({
+      id:        r.id,
+      log_date:  r.log_date,
+      meal_slot: r.meal_slot,
+      food_name: r.food_name,
+      calories:  r.calories   != null ? Number(r.calories)   : null,
+      protein_g: r.protein_g  != null ? Number(r.protein_g)  : null,
+      carbs_g:   r.carbs_g    != null ? Number(r.carbs_g)    : null,
+      fat_g:     r.fat_g      != null ? Number(r.fat_g)      : null,
+      quantity:  null,
+    })) as UserMealLog[]
+  }
+
+  if (nlErr) console.warn('[fetchUserMealLogs] nutrition_logs error:', nlErr.message)
+
+  // Fallback: read from meal_plans (weekly template — no date, use day_of_week as label)
+  const { data: mpData, error: mpErr } = await supabase
+    .from('meal_plans')
+    .select('id, day_of_week, meal_slot, food_name, calories, protein_g, carbs_g, fat_g, sort_order')
+    .eq('user_id', userId)
+    .order('day_of_week')
+    .order('sort_order')
+    .limit(200)
+
+  if (mpErr) {
+    console.warn('[fetchUserMealLogs] meal_plans fallback error:', mpErr.message)
+    return []
+  }
+
+  // Map meal_plans rows to UserMealLog shape (log_date = day label)
+  return (mpData ?? []).map((r: any) => ({
+    id:        r.id,
+    log_date:  r.day_of_week,   // day name shown as "date" in the table
+    meal_slot: r.meal_slot,
+    food_name: r.food_name,
+    calories:  r.calories   != null ? Number(r.calories)   : null,
+    protein_g: r.protein_g  != null ? Number(r.protein_g)  : null,
+    carbs_g:   r.carbs_g    != null ? Number(r.carbs_g)    : null,
+    fat_g:     r.fat_g      != null ? Number(r.fat_g)      : null,
+    quantity:  null,
+  })) as UserMealLog[]
 }
 
 export async function fetchUserAiLogs(userId: string): Promise<UserAiLog[]> {
@@ -327,7 +455,7 @@ export async function fetchUserAiLogs(userId: string): Promise<UserAiLog[]> {
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50)
-  if (error) throw error
+  if (error) { console.warn('[fetchUserAiLogs]', error.message); return [] }
   return (data ?? []) as UserAiLog[]
 }
 
@@ -422,11 +550,11 @@ export async function fetchUserPaymentSubmissions(userId: string): Promise<UserP
 export async function fetchUserAuditLogs(userId: string): Promise<UserAuditLog[]> {
   const { data, error } = await supabase
     .from('audit_logs')
-    .select('id, action, table_name, old_values, new_values, ip_address, severity, created_at')
+    .select('id, action, table_name, old_values, new_values, ip_address, user_agent, severity, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100)
-  if (error) throw error
+  if (error) { console.warn('[fetchUserAuditLogs]', error.message); return [] }
   return (data ?? []) as UserAuditLog[]
 }
 

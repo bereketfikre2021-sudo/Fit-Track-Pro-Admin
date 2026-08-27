@@ -31,7 +31,7 @@ export function StatCard({
   return (
     <div
       className={cn(
-        'rounded-xl border border-border bg-card p-5 shadow-sm flex flex-col gap-3 relative group',
+        'rounded-xl border border-border bg-card p-4 shadow-sm flex flex-col gap-3 relative group overflow-hidden min-w-0',
         className,
       )}
     >
@@ -44,27 +44,27 @@ export function StatCard({
       </button>
 
       {/* Icon + title row */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 min-w-0">
         <div
           className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
             iconBg,
           )}
           aria-hidden="true"
         >
           <Icon className={cn('h-4 w-4', iconColor)} />
         </div>
-        <p className="text-xs font-medium text-muted-foreground leading-tight">{title}</p>
+        <p className="text-xs font-medium text-muted-foreground leading-tight truncate">{title}</p>
       </div>
 
       {/* Value */}
-      <div>
+      <div className="min-w-0">
         {loading ? (
           <Spinner size="sm" />
         ) : (
-          <span className="text-2xl font-bold tabular-nums leading-none text-foreground">
+          <p className="text-2xl font-bold tabular-nums leading-none text-foreground truncate" title={String(value)}>
             {value}
-          </span>
+          </p>
         )}
       </div>
 

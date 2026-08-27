@@ -118,10 +118,19 @@ interface ReportStatProps {
 
 export function ReportStat({ label, value, sub, color = 'text-foreground' }: ReportStatProps) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn('text-2xl font-bold mt-1 tabular-nums', color)}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    <div className="rounded-xl border border-border bg-card p-3 sm:p-4 overflow-hidden min-w-0">
+      <p className="text-xs text-muted-foreground truncate">{label}</p>
+      <p className={cn(
+        'font-bold mt-1 tabular-nums leading-tight truncate',
+        // Scale font size down on narrow containers — use text-lg on mobile, text-xl on sm+
+        'text-lg sm:text-xl lg:text-2xl',
+        color,
+      )}
+        title={String(value)}
+      >
+        {value}
+      </p>
+      {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
     </div>
   )
 }
