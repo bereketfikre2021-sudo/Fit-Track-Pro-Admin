@@ -190,26 +190,35 @@ export async function approveSubmission(
   adminId: string,
   note?: string
 ): Promise<void> {
-  // Guard: if this is a wallet top-up submission (identified by note marker or purpose column),
-  // route to the wallet approval path instead of activating a subscription.
+  // Detect wallet top-ups using only original-schema columns.
+  // Wallet top-ups NEVER have a plan_id (they are not subscription purchases).
+  // We check plan_id IS NULL as the reliable signal — works before AND after
+  // Phase 14.5 migrations, unlike checking the `purpose` column which may not exist.
+  let isWalletTopup = false
   try {
     const { data: sub } = await supabase
       .from('payment_submissions')
-      .select('note, purpose')
+      .select('plan_id, note')
       .eq('id', submissionId)
       .maybeSingle()
 
-    const isWalletTopup =
-      sub?.purpose === 'wallet_topup' ||
-      (sub?.note && String(sub.note).includes('[WALLET_TOPUP]'))
-
-    if (isWalletTopup) {
-      const { approveTopUp } = await import('./wallet.queries')
-      await approveTopUp(submissionId, adminId, note)
-      return
+    if (sub) {
+      // plan_id is null  →  definitely a wallet top-up (no subscription to activate)
+      // note contains marker  →  legacy wallet top-up before purpose column existed
+      isWalletTopup =
+        sub.plan_id === null ||
+        sub.plan_id === undefined ||
+        (sub.note && String(sub.note).includes('[WALLET_TOPUP]'))
     }
-  } catch { /* if detection fails, fall through to standard RPC */ }
+  } catch { /* ignore — fall through to RPC which will fail gracefully */ }
 
+  if (isWalletTopup) {
+    const { approveTopUp } = await import('./wallet.queries')
+    await approveTopUp(submissionId, adminId, note)
+    return
+  }
+
+  // Standard subscription payment approval
   const { error } = await supabase.rpc('approve_payment_submission', {
     p_submission_id: submissionId,
     p_admin_id: adminId,
