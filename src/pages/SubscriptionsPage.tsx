@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CreditCard, RefreshCw, ArrowUp, ArrowDown, Ban, Pause, Play,
   Gift, RotateCcw, CalendarDays, DollarSign, Clock, AlertCircle,
   Sparkles, Zap, Shield, Users as UsersIcon, CheckCircle2,
@@ -361,6 +361,30 @@ const TIER_CONFIG: Record<string, {
   },
 }
 
+// Helper: recalculate all duration prices from a given monthly base rate
+function calcDurationPrices(
+  baseMonthly: number,
+  existing: Record<string, { price_etb: string; discount_pct: string; id?: string }>
+): Record<string, { price_etb: string; discount_pct: string; id?: string }> {
+  const DURATIONS = [
+    { duration: '1_month',   months: 1 },
+    { duration: '3_months',  months: 3 },
+    { duration: '6_months',  months: 6 },
+    { duration: '12_months', months: 12 },
+  ]
+  const result: Record<string, { price_etb: string; discount_pct: string; id?: string }> = {}
+  for (const d of DURATIONS) {
+    const disc = parseFloat(existing[d.duration]?.discount_pct ?? '0') || 0
+    const price = Math.round(baseMonthly * d.months * (1 - disc / 100) * 100) / 100
+    result[d.duration] = {
+      ...existing[d.duration],
+      discount_pct: String(disc),
+      price_etb: String(price),
+    }
+  }
+  return result
+}
+
 function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: () => void }) {
   const qc = useQueryClient()
   const [editTarget, setEditTarget] = useState<SubscriptionPlan | null>(null)
@@ -370,6 +394,9 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
   const [durationPrices, setDurationPrices] = useState<Record<string, { price_etb: string; discount_pct: string; id?: string }>>({})
   const [durationPricesLoading, setDurationPricesLoading] = useState(false)
 
+  // Per-plan 1-month prices fetched from DB, used to display accurate prices on cards
+  const [planMonthlyPrices, setPlanMonthlyPrices] = useState<Record<string, number>>({})
+
   const DURATIONS = [
     { duration: '1_month',   months: 1,  label: '1 Month' },
     { duration: '3_months',  months: 3,  label: '3 Months' },
@@ -378,6 +405,24 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
   ]
 
   const fmtEtb = (n: number) => `ETB ${n.toLocaleString('en-ET', { minimumFractionDigits: 0 })}`
+
+  // Fetch 1-month prices for all plans so cards show accurate pricing
+  useEffect(() => {
+    if (!plans.length) return
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('subscription_purchase_options')
+          .select('plan_id, duration, price_etb')
+          .eq('duration', '1_month')
+          .in('plan_id', plans.map(p => p.id))
+        if (!data) return
+        const map: Record<string, number> = {}
+        for (const row of data) map[row.plan_id] = Number(row.price_etb)
+        setPlanMonthlyPrices(map)
+      } catch {/* table may not exist yet */}
+    })()
+  }, [plans])
 
   // Load existing duration prices when edit modal opens
   const openEdit = async (plan: SubscriptionPlan) => {
@@ -402,13 +447,15 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
         }
       }
 
-      // Fill in missing durations with calculated defaults (monthly × months × discount)
-      const monthly = Number(plan.price_monthly_usd)
+      // Use 1-month DB price as the monthly base; fall back to price_monthly_usd
+      const monthly = parseFloat(priceMap['1_month']?.price_etb ?? '') || Number(plan.price_monthly_usd)
+
+      // Fill in missing durations calculated from the true monthly base
+      const discountMap: Record<string, number> = {
+        '1_month': 0, '3_months': 5, '6_months': 10, '12_months': 15
+      }
       for (const d of DURATIONS) {
         if (!priceMap[d.duration]) {
-          const discountMap: Record<string, number> = {
-            '1_month': 0, '3_months': 5, '6_months': 10, '12_months': 15
-          }
           const disc = discountMap[d.duration] ?? 0
           priceMap[d.duration] = {
             price_etb:    String(Math.round(monthly * d.months * (1 - disc / 100) * 100) / 100),
@@ -436,9 +483,10 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
     if (!editTarget) return
     setSaving(true)
     try {
-      // 1. Update base plan
+      // 1. Update base plan — sync price_monthly_usd from the 1-month purchase option
+      const oneMonthPrice = parseFloat(durationPrices['1_month']?.price_etb ?? '') || editTarget.price_monthly_usd
       const { error: planErr } = await supabase.from('subscription_plans').update({
-        price_monthly_usd: editTarget.price_monthly_usd,
+        price_monthly_usd: oneMonthPrice,
         price_yearly_usd:  editTarget.price_yearly_usd,
         max_ai_calls_day:  editTarget.max_ai_calls_day,
         max_devices:       editTarget.max_devices,
@@ -493,6 +541,8 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
       toast.success('Plan and pricing updated')
       qc.invalidateQueries({ queryKey: ['all-plans'] })
       qc.invalidateQueries({ queryKey: ['purchase-options-admin'] })
+      // Update card price immediately
+      setPlanMonthlyPrices(prev => ({ ...prev, [editTarget.id]: oneMonthPrice }))
       setEditTarget(null)
     } catch (e) { toast.error((e as Error).message) }
     finally { setSaving(false) }
@@ -528,9 +578,9 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
 
               <div className={`relative flex flex-col flex-1 rounded-2xl border-2 overflow-hidden ${cfg.border} ${cfg.gradient} ${cfg.popular ? 'mt-3.5 shadow-xl shadow-primary/10' : 'shadow-md'}`}>
 
-                {/* Inactive overlay */}
+                {/* Inactive overlay — covers only the content area, not the button row */}
                 {!plan.is_active && (
-                  <div className="absolute inset-0 bg-background/60 flex items-center justify-center z-10 rounded-2xl">
+                  <div className="absolute inset-x-0 top-0 bottom-14 bg-background/60 flex items-center justify-center z-10 rounded-t-2xl pointer-events-none">
                     <Badge variant="outline" className="text-xs">Inactive</Badge>
                   </div>
                 )}
@@ -561,7 +611,7 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
                     ) : (
                       <>
                         <span className={`text-2xl font-black tabular-nums leading-none ${cfg.priceCls}`}>
-                          {fmtEtb(plan.price_monthly_usd)}
+                          {fmtEtb(planMonthlyPrices[plan.id] ?? plan.price_monthly_usd)}
                         </span>
                         <span className="text-[11px] text-muted-foreground mb-0.5">/mo</span>
                       </>
@@ -608,8 +658,13 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
             {/* Base plan settings */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Plan Settings</p>
-              <Input label="Base monthly price (ETB)" type="number" min="0" value={editTarget.price_monthly_usd}
-                onChange={(e) => setEditTarget({ ...editTarget, price_monthly_usd: parseFloat(e.target.value) || 0 })} />
+              <Input label="1-Month price (ETB) — used as base for duration pricing" type="number" min="0" value={editTarget.price_monthly_usd}
+                onChange={(e) => {
+                  const newMonthly = parseFloat(e.target.value) || 0
+                  setEditTarget({ ...editTarget, price_monthly_usd: newMonthly })
+                  // Recalculate all duration prices from the new monthly base
+                  setDurationPrices(prev => calcDurationPrices(newMonthly, prev))
+                }} />
               <Input label="AI calls per day" type="number" min="0" value={editTarget.max_ai_calls_day}
                 onChange={(e) => setEditTarget({ ...editTarget, max_ai_calls_day: parseInt(e.target.value) || 0 })} />
               <Input label="Max devices" type="number" min="1" value={editTarget.max_devices}
@@ -661,7 +716,7 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
                                   ...prev,
                                   [d.duration]: { ...prev[d.duration], price_etb: e.target.value }
                                 }))}
-                                className="w-28 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
+                                className="w-full min-w-[6rem] h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
                               />
                             </td>
                             <td className="px-3 py-2">
@@ -672,11 +727,23 @@ function PlansTab({ plans, onRefresh }: { plans: SubscriptionPlan[]; onRefresh: 
                                   max="99"
                                   step="1"
                                   value={entry.discount_pct}
-                                  onChange={e => setDurationPrices(prev => ({
-                                    ...prev,
-                                    [d.duration]: { ...prev[d.duration], discount_pct: e.target.value }
-                                  }))}
-                                  className="w-16 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
+                                  onChange={e => {
+                                    const disc = parseFloat(e.target.value) || 0
+                                    // Use the 1-month price as the true monthly rate
+                                    const baseMonthly = parseFloat(
+                                      durationPrices['1_month']?.price_etb ?? String(editTarget?.price_monthly_usd ?? 0)
+                                    ) || 0
+                                    const autoPrice = Math.round(baseMonthly * d.months * (1 - disc / 100) * 100) / 100
+                                    setDurationPrices(prev => ({
+                                      ...prev,
+                                      [d.duration]: {
+                                        ...prev[d.duration],
+                                        discount_pct: e.target.value,
+                                        price_etb: String(autoPrice),
+                                      }
+                                    }))
+                                  }}
+                                  className="w-14 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
                                 />
                                 <span className="text-xs text-muted-foreground">%</span>
                               </div>
