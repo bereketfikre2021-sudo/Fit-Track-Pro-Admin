@@ -18,6 +18,8 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { PwaInstallPrompt } from '@/components/ui/PwaInstallPrompt'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { UnauthorizedPage } from '@/pages/auth/UnauthorizedPage'
+import { SSOPage }          from '@/pages/auth/SSOPage'
+import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { UsersPage } from '@/pages/UsersPage'
 import { UserDetailPage } from '@/pages/UserDetailPage'
@@ -63,6 +65,8 @@ export default function App() {
                 {/* Public routes */}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                <Route path="/sso"           element={<SSOPage />} />
+                <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
                 {/* Protected admin routes */}
                 <Route element={<AdminRouteGuard />}>
