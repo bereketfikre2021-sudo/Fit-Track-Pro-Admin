@@ -4,13 +4,13 @@
  * PKCE OAuth callback handler.
  * Route: /auth/callback
  *
- * Supabase redirects here after the user authenticates with any OAuth
- * provider (currently: Central Admin OIDC). With flowType:'pkce' and
- * detectSessionInUrl:true set in the Supabase client, getSession() handles
- * the code exchange automatically — no manual exchangeCodeForSession needed.
+ * With flowType:'pkce' + detectSessionInUrl:true, the Supabase client
+ * automatically exchanges the ?code= param on initialization and fires
+ * onAuthStateChange(SIGNED_IN). We simply wait for that event and then
+ * navigate — never calling exchangeCodeForSession or getSession() early,
+ * which would race against the in-flight exchange and return null.
  *
- * The AdminRouteGuard will redirect to /unauthorized if the authenticated
- * user does not have a row in user_roles with an admin-level role.
+ * AdminRouteGuard handles /unauthorized if roles are insufficient.
  */
 
 import { useEffect } from 'react'
@@ -22,20 +22,30 @@ export function AuthCallbackPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        console.error('[AuthCallback] getSession error:', error.message)
-        navigate('/login', { replace: true })
-      } else if (data.session) {
-        // Session established; AuthContext.onAuthStateChange will load roles.
-        // AdminRouteGuard handles /unauthorized if roles are insufficient.
+    // Listen for the SIGNED_IN event that detectSessionInUrl triggers after
+    // exchanging the authorization code. This fires before getSession() would
+    // resolve with a valid session, so it's the reliable signal to navigate.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') {
+        subscription.unsubscribe()
         navigate('/dashboard', { replace: true })
-      } else {
-        // No session and no error — code may have already been consumed.
-        console.warn('[AuthCallback] No session after callback, redirecting to login.')
+      } else if (event === 'SIGNED_OUT') {
+        subscription.unsubscribe()
         navigate('/login', { replace: true })
       }
     })
+
+    // Safety timeout: if neither event fires in 10 s, bail to login.
+    const timeout = setTimeout(() => {
+      subscription.unsubscribe()
+      console.warn('[AuthCallback] Timed out waiting for auth event.')
+      navigate('/login', { replace: true })
+    }, 10_000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [navigate])
 
   return <LoadingScreen message="Completing sign-in…" />
