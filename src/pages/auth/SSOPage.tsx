@@ -7,7 +7,7 @@
  * Central Admin opens this URL to kick off SSO into Fit Track Pro Admin.
  * No UI is shown — the browser is immediately redirected to the IdP.
  *
- * The OIDC provider slug "central-admin" must be registered in the
+ * The OIDC provider slug "custom:central-admin" must be registered in the
  * Fit Track Pro Admin Supabase dashboard under:
  *   Authentication → Sign In / Up → Enterprise → Add provider
  *   Issuer: https://gencqivcjlhpfudecxxt.supabase.co/auth/v1
@@ -26,7 +26,7 @@ export function SSOPage() {
         scopes: 'openid email',
         redirectTo: 'https://fit-track-pro-admin.vercel.app/auth/callback',
         queryParams: {
-          provider_id: 'central-admin',
+          provider_id: 'custom:central-admin',
         },
       },
     })
